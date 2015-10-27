@@ -5,9 +5,9 @@
 *
 * File : bmi160_support.h
 *
-* Date : 2014/12/12
+* Date : 2014/10/27
 *
-* Revision : 1.0.5 $
+* Revision : 1.0.6 $
 *
 * Usage: Sensor Driver support file for BMI160 sensor
 *
@@ -53,6 +53,7 @@
 * No license is granted by implication or otherwise under any patent or
 * patent rights of the copyright holder.
 **************************************************************************/
+
 /*! \file bmi160_support.h
     \brief BMI160 Sensor Driver Support Header File */
 /* user defined code to be added here ... */
@@ -74,11 +75,11 @@ struct gyro_sleep_setting {
 /********************************/
 /**\name POWE MODES DEFINITION */
 /*******************************/
-#define ACCEL_MODE_NORMAL	0x11
-#define GYRO_MODE_NORMAL	0x15
-#define	ACCEL_LOWPOWER		0X12
-#define MAG_SUSPEND_MODE	1
-#define C_BMI160_THIRTY_U8X		30
+#define ACCEL_MODE_NORMAL	(0x11)
+#define GYRO_MODE_NORMAL	(0x15)
+#define	ACCEL_LOWPOWER		(0X12)
+#define MAG_SUSPEND_MODE	(1)
+#define C_BMI160_THIRTY_U8X		(30)
 /********************************/
 /**\name RETURN TYPE */
 /*******************************/
@@ -87,20 +88,26 @@ struct gyro_sleep_setting {
 /********************************/
 /**\name RUNNING MODE DEFINITIONS */
 /*******************************/
-#define	STANDARD_UI_9DOF_FIFO			0
-#define	STANDARD_UI_IMU_FIFO			1
-#define	STANDARD_UI_IMU					2
-#define	STANDARD_UI_ADVANCEPOWERSAVE	3
-#define	ACCEL_PEDOMETER					4
-#define APPLICATION_HEAD_TRACKING		5
-#define APPLICATION_NAVIGATION			6
-#define APPLICATION_REMOTE_CONTROL		7
-#define APPLICATION_INDOOR_NAVIGATION	8
+#define	STANDARD_UI_9DOF_FIFO			(0)
+#define	STANDARD_UI_IMU_FIFO			(1)
+#define	STANDARD_UI_IMU					(2)
+#define	STANDARD_UI_ADVANCEPOWERSAVE	(3)
+#define	ACCEL_PEDOMETER					(4)
+#define APPLICATION_HEAD_TRACKING		(5)
+#define APPLICATION_NAVIGATION			(6)
+#define APPLICATION_REMOTE_CONTROL		(7)
+#define APPLICATION_INDOOR_NAVIGATION	(8)
 /********************************/
 /**\name MAG INTERFACE */
 /*******************************/
-#define	BMI160_MAG_INTERFACE_OFF_PRIMARY_ON		0x00
-#define	BMI160_MAG_INTERFACE_ON_PRIMARY_ON		0x02
+#define	C_BMI160_BYTE_COUNT	   (2)
+#define BMI160_SLEEP_STATE     (0x00)
+#define BMI160_WAKEUP_INTR     (0x00)
+#define BMI160_SLEEP_TRIGGER   (0x04)
+#define BMI160_WAKEUP_TRIGGER  (0x02)
+#define BMI160_ENABLE_FIFO_WM  (0x02)
+#define	BMI160_MAG_INTERFACE_OFF_PRIMARY_ON		(0x00)
+#define	BMI160_MAG_INTERFACE_ON_PRIMARY_ON		(0x02)
 /*!
  *	@brief This function used for initialize the sensor
  *
