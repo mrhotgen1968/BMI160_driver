@@ -1,13 +1,13 @@
 /*
 *
 ****************************************************************************
-* Copyright (C) 2014 Bosch Sensortec GmbH
+* Copyright (C) 2016 Bosch Sensortec GmbH
 *
 * File : bmi160_support.h
 *
-* Date : 2014/10/27
+* Date : 2016/03/15
 *
-* Revision : 1.0.6 $
+* Revision : 1.0.7 $
 *
 * Usage: Sensor Driver support file for BMI160 sensor
 *
@@ -79,7 +79,7 @@ struct gyro_sleep_setting {
 #define GYRO_MODE_NORMAL	(0x15)
 #define	ACCEL_LOWPOWER		(0X12)
 #define MAG_SUSPEND_MODE	(1)
-#define C_BMI160_THIRTY_U8X		(30)
+#define BMI160_MODE_SWITCHING_DELAY		(30)
 /********************************/
 /**\name RETURN TYPE */
 /*******************************/

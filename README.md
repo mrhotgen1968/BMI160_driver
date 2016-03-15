@@ -17,10 +17,10 @@ INTRODUCTION
 VERSION
 =========
 	- Version of bmi160 sensor driver is:
-		* bmi160.c 		- V2.0.6
-		* bmi160.h 		- V2.0.6
-		* bmi160_support.c 	- V1.0.6
-		* bmi160_support.h 	- V1.0.6
+		* bmi160.c 		- V2.0.7
+		* bmi160.h 		- V2.0.7
+		* bmi160_support.c 	- V1.0.7
+		* bmi160_support.h 	- V1.0.7
 
 INTEGRATION DETAILS
 =====================
@@ -56,5 +56,5 @@ SUPPORTED SENSOR INTERFACE
 
 COPYRIGHT
 ===========
-	- Copyright (C) 2014 - 2015 Bosch Sensortec GmbH
+	- Copyright (C) 2015 - 2016 Bosch Sensortec GmbH
 

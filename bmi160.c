@@ -1,10 +1,10 @@
 /*
 ****************************************************************************
-* Copyright (C) 2015 Bosch Sensortec GmbH
+* Copyright (C) 2016 Bosch Sensortec GmbH
 *
 * bmi160.c
-* Date: 2014/10/27
-* Revision: 2.0.6 $
+* Date: 2016/03/15
+* Revision: 2.0.7 $
 *
 * Usage: Sensor Driver for BMI160 sensor
 *
@@ -49,8 +49,9 @@
 * No license is granted by implication or otherwise under any patent or
 * patent rights of the copyright holder.
 **************************************************************************/
-/*! file <BMI160 >
-    brief <Sensor driver for BMI160> */
+
+/*! file BMI160
+    brief Sensor driver for BMI160 */
 #include "bmi160.h"
 /* user defined code to be added here ... */
 struct bmi160_t *p_bmi160;
@@ -59,23 +60,60 @@ struct trim_data_t mag_trim;
 /* the following variable used for avoiding the selecting of auto mode
 when it is running in the manual mode of BMM150 mag interface*/
 u8 V_bmm150_maual_auto_condition_u8 = BMI160_INIT_VALUE;
-/* used for reading the AKM compensating data */
-struct bst_akm_sensitivity_data_t akm_asa_data;
 /* FIFO data read for 1024 bytes of data */
-u8 v_fifo_data_u8[FIFO_FRAME] = {BMI160_INIT_VALUE,};
+#ifdef FIFO_ENABLE
+static u8 v_fifo_data_u8[FIFO_FRAME];
+struct bmi160_mag_fifo_data_t mag_data;
+#endif
 /* YAMAHA-YAS532*/
 /* value of coeff*/
+#ifdef YAS532
 static const int yas532_version_ac_coef[] = {YAS532_VERSION_AC_COEF_X,
 YAS532_VERSION_AC_COEF_Y1, YAS532_VERSION_AC_COEF_Y2};
 /* used for reading the yas532 calibration data*/
 struct yas532_t yas532_data;
+struct yas532_vector fifo_xyz_data;
+#endif
+#ifdef YAS537
 /* used for reading the yas537 calibration data*/
 struct yas537_t yas537_data;
-struct bmi160_mag_fifo_data_t mag_data;
-struct bmi160_mag_xyz_s32_t processed_data;
-struct yas532_vector fifo_xyz_data;
 struct yas_vector fifo_vector_xyz;
-
+/*!
+ *	@brief This function used for processing the
+ *	YAMAHA YAS537 xy1y2 raw data
+ *
+ *	@param xy1y2: The value of raw xy1y2 data
+ *	@param xyz: The value of  xyz data
+ *
+ *
+ *	@return None
+ *
+ *
+ */
+static void xy1y2_to_xyz(u16 *xy1y2, s32 *xyz);
+/*!
+ *	@brief This function used for detecting whether the mag
+ *  data obtained is valid or not
+ *
+ *
+ *	@param v_cur_u16: The value of current mag data
+ *  @param v_last_u16: The value of last mag data
+ *
+ *
+ *	@return results of magnetic field data's validity
+ *	@retval 0 -> VALID DATA
+ *	@retval 1 -> INVALID DATA
+ *
+ *
+ */
+static BMI160_RETURN_FUNCTION_TYPE invalid_magnetic_field(
+u16 *v_cur_u16, u16 *v_last_u16);
+#endif
+#if defined AKM09911 || defined AKM09912
+/* used for reading the AKM compensating data */
+struct bst_akm_sensitivity_data_t akm_asa_data;
+#endif
+struct bmi160_mag_xyz_s32_t processed_data;
 
 
 /*!
@@ -353,7 +391,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_drop_cmd_err(u8
  *
  *
 */
-BMI160_RETURN_FUNCTION_TYPE bmi160_get_mag_dada_rdy_err(
+BMI160_RETURN_FUNCTION_TYPE bmi160_get_mag_data_rdy_err(
 u8 *v_mag_data_rdy_err_u8)
 {
 	/* variable used for return the status of communication result*/
@@ -366,11 +404,11 @@ u8 *v_mag_data_rdy_err_u8)
 			com_rslt =
 			p_bmi160->BMI160_BUS_READ_FUNC(
 			p_bmi160->dev_addr,
-			BMI160_USER_MAG_DADA_RDY_ERR__REG,
+			BMI160_USER_MAG_DATA_RDY_ERR__REG,
 			&v_data_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
 			*v_mag_data_rdy_err_u8 =
 			BMI160_GET_BITSLICE(v_data_u8,
-			BMI160_USER_MAG_DADA_RDY_ERR);
+			BMI160_USER_MAG_DATA_RDY_ERR);
 		}
 	return com_rslt;
 }
@@ -428,7 +466,7 @@ u8 *v_drop_cmd_err_u8, u8 *v_mag_data_rdy_err_u8)
 			/* mag data ready error*/
 			*v_mag_data_rdy_err_u8 =
 			BMI160_GET_BITSLICE(v_data_u8,
-			BMI160_USER_MAG_DADA_RDY_ERR);
+			BMI160_USER_MAG_DATA_RDY_ERR);
 		}
 	return com_rslt;
 }
@@ -589,7 +627,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_set_mag_interface_normal(void)
 	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
 	com_rslt = bmi160_set_command_register(MAG_MODE_NORMAL);
 	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	while (v_try_times_u8) {
+	while (v_try_times_u8 != 0) {
 		com_rslt = bmi160_get_mag_power_mode_stat(&v_mag_pum_status_u8);
 		if (v_mag_pum_status_u8 == MAG_INTERFACE_PMU_ENABLE)
 			break;
@@ -1507,6 +1545,111 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_sensor_time(u32 *v_sensor_time_u32)
 	return com_rslt;
 }
 /*!
+ *	@brief This API reads sensor_time ,Accel data ,Gyro data from the register
+ *	0x0C to 0x1A
+ *
+ *
+ *  @param accel_gyro_sensortime_select : The value of configuration
+ *  value    |   output
+ *  ---------|----------------
+ *   0       | Accel data and Sensor time
+ *   1       | Accel data ,Gyro data and Sensor time
+ *	@param accel_gyro_sensor_time : the value of accel gyro and sensor time data
+ *
+ *
+ *	@return results of bus communication function
+ *	@retval 0 -> Success
+ *	@retval -1 -> Error
+ *
+ *
+*/
+BMI160_RETURN_FUNCTION_TYPE bmi160_read_accel_gyro_sensor_time(
+	u8 accel_gyro_sensortime_select,
+struct bmi160_sensortime_accel_gyro_data *accel_gyro_sensor_time)
+{
+		u8 a_data_u8r[BMI160_GYRO_ACCEL_SENSORTIME_DATA_SIZE];
+		BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
+
+		switch (accel_gyro_sensortime_select) {
+		case BMI160_ACCEL_SENSORTIME_DATA:
+			com_rslt = p_bmi160->BMI160_BURST_READ_FUNC(
+			p_bmi160->dev_addr,
+			BMI160_USER_DATA_14_ACCEL_X_LSB__REG, a_data_u8r,
+			BMI160_ACCEL_SENSORTIME_DATA_SIZE);
+			/* Accel Data X */
+			accel_gyro_sensor_time->accel.x = (s16)((((s32)
+			((s8)a_data_u8r[BMI160_DATA_FRAME_ACCEL_X_MSB_BYTE]))
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_ACCEL_X_LSB_BYTE]));
+			/* Accel Data Y */
+			accel_gyro_sensor_time->accel.y = (s16)((((s32)
+			((s8)a_data_u8r[BMI160_DATA_FRAME_ACCEL_Y_MSB_BYTE]))
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_ACCEL_Y_LSB_BYTE]));
+			/* Accel Data Z */
+			accel_gyro_sensor_time->accel.z = (s16)((((s32)
+			((s8)a_data_u8r[BMI160_DATA_FRAME_ACCEL_Z_MSB_BYTE]))
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_ACCEL_Z_LSB_BYTE]));
+			/* Sensor time data */
+			accel_gyro_sensor_time->v_sensor_time_u32 = (u32)((
+			((u32)a_data_u8r[BMI160_DATA_FRAME_ACCEL_Z_MSB_BYTE+3])
+			<< BMI160_SHIFT_BIT_POSITION_BY_16_BITS)|
+			(((u32)a_data_u8r[BMI160_DATA_FRAME_ACCEL_Z_MSB_BYTE+2])
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_ACCEL_Z_MSB_BYTE+1]));
+			break;
+
+		case BMI160_GYRO_ACCEL_SENSORTIME_DATA:
+			com_rslt = p_bmi160->BMI160_BURST_READ_FUNC(
+			p_bmi160->dev_addr,
+			BMI160_USER_DATA_8_GYRO_X_LSB__REG, a_data_u8r,
+			BMI160_GYRO_ACCEL_SENSORTIME_DATA_SIZE);
+			/* Gyro Data X */
+			accel_gyro_sensor_time->gyro.x = (s16)((((s32)((s8)
+			a_data_u8r[BMI160_DATA_FRAME_GYRO_X_MSB_BYTE]))
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_GYRO_X_LSB_BYTE]));
+			/* Gyro Data Y */
+			accel_gyro_sensor_time->gyro.y = (s16)((((s32)
+			((s8)a_data_u8r[BMI160_DATA_FRAME_GYRO_Y_MSB_BYTE]))
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_GYRO_Y_LSB_BYTE]));
+			/* Gyro Data Z */
+			accel_gyro_sensor_time->gyro.z = (s16)((((s32)
+			((s8)a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_MSB_BYTE]))
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_LSB_BYTE]));
+			/* Accel Data X */
+			accel_gyro_sensor_time->accel.x = (s16)((((s32)
+			((s8)a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_MSB_BYTE+2]))
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_MSB_BYTE+1]));
+			/* Accel Data Y */
+			accel_gyro_sensor_time->accel.y = (s16)((((s32)
+			((s8)a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_MSB_BYTE+4]))
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_MSB_BYTE+3]));
+			/* Accel Data Z */
+			accel_gyro_sensor_time->accel.z = (s16)((((s32)
+			((s8)a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_MSB_BYTE+6]))
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_MSB_BYTE+5]));
+			/* Sensor time data */
+			accel_gyro_sensor_time->v_sensor_time_u32 = (u32)
+			((((u32)a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_MSB_BYTE+9])
+			<< BMI160_SHIFT_BIT_POSITION_BY_16_BITS)
+			|(((u32)a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_MSB_BYTE+8])
+			<< BMI160_SHIFT_BIT_POSITION_BY_08_BITS)
+			| (a_data_u8r[BMI160_DATA_FRAME_GYRO_Z_MSB_BYTE+7]));
+			break;
+
+		}
+	return com_rslt;
+
+}
+
+/*!
  *	@brief This API reads the Gyroscope self test
  *	status from the register 0x1B bit 1
  *
@@ -2335,6 +2478,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_stat1_data_rdy_intr(u8
 		}
 	return com_rslt;
 }
+#ifdef FIFO_ENABLE
 /*!
  *	@brief This API reads data ready FIFO full interrupt status
  *	from the register 0x1D bit 5
@@ -2426,6 +2570,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_stat1_fifo_wm_intr(u8
 		}
 	return com_rslt;
 }
+#endif
 /*!
  *	@brief This API reads data ready no motion interrupt status
  *	from the register 0x1D bit 7
@@ -3134,6 +3279,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_temp(s16
 		}
 	return com_rslt;
 }
+#ifdef FIFO_ENABLE
 /*!
  *	@brief This API reads the  of the sensor
  *	form the register 0x23 and 0x24 bit 0 to 7 and 0 to 2
@@ -3190,7 +3336,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_fifo_length(u32 *v_fifo_length_u32)
  *
  *
  *  @param v_fifodata_u8 : Pointer holding the fifo data
- *  @param fifo_length_u16 : The value of fifo length maximum
+ *  @param v_fifo_length_u16 : The value of fifo length maximum
  *	1024
  *
  *	@note For reading FIFO data use the following functions
@@ -3219,6 +3365,7 @@ u8 *v_fifodata_u8, u16 v_fifo_length_u16)
 		}
 	return com_rslt;
 }
+#endif
 /*!
  *	@brief This API is used to get the
  *	accel output date rate form the register 0x40 bit 0 to 3
@@ -4154,7 +4301,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_set_gyro_range(u8 v_range_u8)
  *
  *
  *
- *  @param  v_output_data_rat_u8e : The value of mag output data rate
+ *  @param  v_output_data_rate_u8 : The value of mag output data rate
  *  value   |    mag output data rate
  * ---------|---------------------------
  *  0x00    |BMI160_MAG_OUTPUT_DATA_RATE_RESERVED
@@ -4183,7 +4330,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_set_gyro_range(u8 v_range_u8)
  *
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_get_mag_output_data_rate(
-u8 *v_output_data_rat_u8e)
+u8 *v_output_data_rate_u8)
 {
 	/* variable used for return the status of communication result*/
 	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
@@ -4197,7 +4344,7 @@ u8 *v_output_data_rat_u8e)
 			p_bmi160->BMI160_BUS_READ_FUNC(p_bmi160->dev_addr,
 			BMI160_USER_MAG_CONFIG_OUTPUT_DATA_RATE__REG,
 			&v_data_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
-			*v_output_data_rat_u8e = BMI160_GET_BITSLICE(v_data_u8,
+			*v_output_data_rate_u8 = BMI160_GET_BITSLICE(v_data_u8,
 			BMI160_USER_MAG_CONFIG_OUTPUT_DATA_RATE);
 		}
 	return com_rslt;
@@ -4209,7 +4356,7 @@ u8 *v_output_data_rat_u8e)
  *
  *
  *
- *  @param  v_output_data_rat_u8e : The value of mag output data rate
+ *  @param  v_output_data_rate_u8 : The value of mag output data rate
  *  value   |    mag output data rate
  * ---------|---------------------------
  *  0x00    |BMI160_MAG_OUTPUT_DATA_RATE_RESERVED
@@ -4238,7 +4385,7 @@ u8 *v_output_data_rat_u8e)
  *
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_set_mag_output_data_rate(
-u8 v_output_data_rat_u8e)
+u8 v_output_data_rate_u8)
 {
 	/* variable used for return the status of communication result*/
 	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
@@ -4248,13 +4395,13 @@ u8 v_output_data_rat_u8e)
 		return E_BMI160_NULL_PTR;
 		} else {
 		/* select the mag data output rate*/
-		if ((v_output_data_rat_u8e
+		if ((v_output_data_rate_u8
 		<= BMI160_MAX_ACCEL_OUTPUT_DATA_RATE)
-		&& (v_output_data_rat_u8e
+		&& (v_output_data_rate_u8
 		!= BMI160_OUTPUT_DATA_RATE0)
-		&& (v_output_data_rat_u8e
+		&& (v_output_data_rate_u8
 		!=  BMI160_OUTPUT_DATA_RATE6)
-		&& (v_output_data_rat_u8e
+		&& (v_output_data_rate_u8
 		!=  BMI160_OUTPUT_DATA_RATE7)) {
 			/* write the mag data output rate*/
 			com_rslt =
@@ -4264,7 +4411,7 @@ u8 v_output_data_rat_u8e)
 			if (com_rslt == SUCCESS) {
 				v_data_u8 = BMI160_SET_BITSLICE(v_data_u8,
 				BMI160_USER_MAG_CONFIG_OUTPUT_DATA_RATE,
-				v_output_data_rat_u8e);
+				v_output_data_rate_u8);
 				com_rslt +=
 				p_bmi160->BMI160_BUS_WRITE_FUNC(
 				p_bmi160->dev_addr,
@@ -4277,6 +4424,7 @@ u8 v_output_data_rat_u8e)
 	}
 	return com_rslt;
 }
+#ifdef FIFO_ENABLE
  /*!
  *	@brief This API is used to read Down sampling
  *	for gyro (2**downs_gyro) in the register 0x45 bit 0 to 2
@@ -5303,6 +5451,7 @@ u8 v_fifo_gyro_u8)
 	}
 	return com_rslt;
 }
+#endif
 /*!
  *	@brief This API is used to read
  *	I2C device address of auxiliary mag from the register 0x4B bit 1 to 7
@@ -7088,7 +7237,7 @@ u8 v_channel_u8, u8 v_intr_output_type_u8)
 }
  /*!
  *	@brief API used to get the Output enable for interrupt1
- *	and interrupt1 pin from the register 0x53
+ *	and interrupt2 pin from the register 0x53
  *	@brief interrupt1 - bit 3
  *	@brief interrupt2 - bit 7
  *
@@ -7102,8 +7251,8 @@ u8 v_channel_u8, u8 v_intr_output_type_u8)
  *	The value of output enable of interrupt enable
  *	value    | Behaviour
  * ----------|-------------------
- *  0x01     |  BMI160_INPUT
- *  0x00     |  BMI160_OUTPUT
+ *  0x01     |  INTERRUPT OUTPUT ENABLED
+ *  0x00     |  INTERRUPT OUTPUT DISABLED
  *
  *
  *
@@ -7149,7 +7298,7 @@ u8 v_channel_u8, u8 *v_output_enable_u8)
 }
  /*!
  *	@brief API used to set the Output enable for interrupt1
- *	and interrupt1 pin from the register 0x53
+ *	and interrupt2 pin from the register 0x53
  *	@brief interrupt1 - bit 3
  *	@brief interrupt2 - bit 7
  *
@@ -7163,8 +7312,8 @@ u8 v_channel_u8, u8 *v_output_enable_u8)
  *	The value of output enable of interrupt enable
  *	value    | Behaviour
  * ----------|-------------------
- *  0x01     |  BMI160_INPUT
- *  0x00     |  BMI160_OUTPUT
+ *  0x01     |  INTERRUPT OUTPUT ENABLED
+ *  0x00     |  INTERRUPT OUTPUT DISABLED
  *
  *
  *
@@ -7307,9 +7456,9 @@ u8 *v_latch_intr_u8)
 *
 *
 *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
+*	@return results of bus communication function
+*	@retval 0 -> Success
+*	@retval -1 -> Error
 *
 *
 */
@@ -8701,6 +8850,7 @@ if (p_bmi160 == BMI160_NULL) {
 }
 return com_rslt;
 }
+#ifdef FIFO_ENABLE
 /*!
  *	@brief Reads FIFO Full interrupt mapped to interrupt1
  *	and interrupt2 form the register 0x56 bit 5 and 1
@@ -8989,6 +9139,7 @@ u8 v_data_u8 = BMI160_INIT_VALUE;
 	}
 	return com_rslt;
 }
+#endif
 /*!
  *	@brief Reads Data Ready interrupt mapped to interrupt1
  *	and interrupt2 form the register 0x56
@@ -10521,6 +10672,87 @@ if (p_bmi160 == BMI160_NULL) {
 	}
 }
 return com_rslt;
+}
+/******************************************************************************
+ *	Description: *//**brief This API used to unmap the  signification motion
+ *	interrupt
+ *
+ *
+ *  @param v_significant_u8   : The value of interrupt selection
+ *
+ *      BMI160_MAP_INTR1	0
+ *      BMI160_MAP_INTR2	1
+ *
+ *  \return results of communication routine
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ ******************************************************************************/
+BMI160_RETURN_FUNCTION_TYPE bmi160_unmap_significant_motion_intr(
+u8 v_significant_u8)
+{
+	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
+		u8 v_any_motion_intr1_stat_u8 = V_ANY_MOTION_INTR_STAT;
+		u8 v_any_motion_intr2_stat_u8 = V_ANY_MOTION_INTR_STAT;
+		u8 v_any_motion_axis_stat_u8 = V_ANY_MOTION_AXIS_STAT;
+		u8 v_data_u8 = BMI160_INIT_VALUE;
+	switch (v_significant_u8) {
+	case BMI160_MAP_INTR1:
+		/* interrupt */
+		com_rslt = bmi160_read_reg(
+		BMI160_USER_INTR_MAP_0_INTR1_ANY_MOTION__REG,
+		&v_data_u8, BMI160_ASSIGN_DATA);
+		v_data_u8 &= ~(v_any_motion_intr1_stat_u8);
+		/* map the signification interrupt
+		to any-motion interrupt1*/
+		com_rslt += bmi160_write_reg(
+		BMI160_USER_INTR_MAP_0_INTR1_ANY_MOTION__REG,
+		&v_data_u8, BMI160_ASSIGN_DATA);
+		p_bmi160->delay_msec(BMI160_ASSIGN_DATA);
+		/* axis*/
+		com_rslt = bmi160_read_reg(
+		BMI160_USER_INTR_ENABLE_0_ADDR,
+		&v_data_u8, BMI160_ASSIGN_DATA);
+		v_data_u8 &= ~(v_any_motion_axis_stat_u8);
+		com_rslt += bmi160_write_reg(
+		BMI160_USER_INTR_ENABLE_0_ADDR,
+		&v_data_u8, BMI160_ASSIGN_DATA);
+		p_bmi160->delay_msec(BMI160_ASSIGN_DATA);
+	break;
+	case BMI160_MAP_INTR2:
+		/* map the signification interrupt
+		to any-motion interrupt2*/
+		com_rslt = bmi160_read_reg(
+		BMI160_USER_INTR_MAP_2_INTR2_ANY_MOTION__REG,
+		&v_data_u8, BMI160_ASSIGN_DATA);
+		v_data_u8 &= ~(v_any_motion_intr2_stat_u8);
+		com_rslt += bmi160_write_reg(
+		BMI160_USER_INTR_MAP_2_INTR2_ANY_MOTION__REG,
+		&v_data_u8, BMI160_ASSIGN_DATA);
+		p_bmi160->delay_msec(BMI160_ASSIGN_DATA);
+		/* axis*/
+		com_rslt = bmi160_read_reg(BMI160_USER_INTR_ENABLE_0_ADDR,
+		&v_data_u8, BMI160_ASSIGN_DATA);
+		v_data_u8 &= ~(v_any_motion_axis_stat_u8);
+		com_rslt += bmi160_write_reg(
+		BMI160_USER_INTR_ENABLE_0_ADDR,
+		&v_data_u8, BMI160_ASSIGN_DATA);
+		p_bmi160->delay_msec(BMI160_ASSIGN_DATA);
+	break;
+	default:
+		com_rslt = E_BMI160_OUT_OF_RANGE;
+	break;
+	}
+		return com_rslt;
 }
  /*!
  *	@brief This API is used to read
@@ -15265,7 +15497,6 @@ u8 v_step_detector_u8)
 	u8 v_data_u8 = BMI160_INIT_VALUE;
 	u8 v_low_g_intr_u81_stat_u8 = BMI160_LOW_G_INTR_STAT;
 	u8 v_low_g_intr_u82_stat_u8 = BMI160_LOW_G_INTR_STAT;
-	u8 v_low_g_enable_u8 = BMI160_ENABLE_LOW_G;
 	/* read the v_status_s8 of step detector interrupt*/
 	com_rslt = bmi160_get_step_detector_enable(&v_step_det_u8);
 	if (v_step_det_u8 != BMI160_STEP_DET_STAT_HIGH)
@@ -15283,16 +15514,6 @@ u8 v_step_detector_u8)
 		BMI160_USER_INTR_MAP_0_INTR1_LOW_G__REG,
 		&v_data_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-		/* Enable the Low-g interrupt*/
-		com_rslt = bmi160_read_reg(
-		BMI160_USER_INTR_ENABLE_1_LOW_G_ENABLE__REG,
-		&v_data_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
-		v_data_u8 |= v_low_g_enable_u8;
-		com_rslt += bmi160_write_reg(
-		BMI160_USER_INTR_ENABLE_1_LOW_G_ENABLE__REG,
-		&v_data_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
-
-		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
 	break;
 	case BMI160_MAP_INTR2:
 		/* map the step detector interrupt
@@ -15306,15 +15527,7 @@ u8 v_step_detector_u8)
 		BMI160_USER_INTR_MAP_2_INTR2_LOW_G__REG,
 		&v_data_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-		/* Enable the Low-g interrupt*/
-		com_rslt = bmi160_read_reg(
-		BMI160_USER_INTR_ENABLE_1_LOW_G_ENABLE__REG,
-		&v_data_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
-		v_data_u8 |= v_low_g_enable_u8;
-		com_rslt += bmi160_write_reg(
-		BMI160_USER_INTR_ENABLE_1_LOW_G_ENABLE__REG,
-		&v_data_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
-		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+
 	break;
 	default:
 		com_rslt = E_BMI160_OUT_OF_RANGE;
@@ -15656,10 +15869,10 @@ u8 v_control_pullup_u8)
 /*!
  *	@brief This function used for reading the compensated data of
  *	mag secondary interface xyz data
- *	@param v_mag_x_s16: The value of mag x data
- *	@param v_mag_y_s16: The value of mag y data
- *	@param v_mag_z_s16: The value of mag z data
- *	@param v_mag_r_s16: The value of mag r data
+ *	@note v_mag_x_s16: The value of mag x data
+ *	@note v_mag_y_s16: The value of mag y data
+ *	@note v_mag_z_s16: The value of mag z data
+ *	@note v_mag_r_s16: The value of mag r data
  *	@param v_mag_second_if_u8: The value of mag selection
  *
  *  value   |   v_mag_second_if_u8
@@ -15685,23 +15898,25 @@ s16 v_mag_x_s16 = BMI160_INIT_VALUE;
 s16 v_mag_y_s16 = BMI160_INIT_VALUE;
 s16 v_mag_z_s16 = BMI160_INIT_VALUE;
 u16 v_mag_r_u16 = BMI160_INIT_VALUE;
-u8 i = BMI160_INIT_VALUE;
-u8 v_ouflow_u8 = BMI160_INIT_VALUE;
-u8 v_busy_u8 = BMI160_INIT_VALUE;
-u8 v_coil_stat_u8 = BMI160_INIT_VALUE;
-u16 v_temperature_u16 = BMI160_INIT_VALUE;
-s32 a_h_s32[BMI160_YAS_H_DATA_SIZE] = {
-BMI160_INIT_VALUE, BMI160_INIT_VALUE, BMI160_INIT_VALUE};
-s32 a_s_s32[BMI160_YAS_S_DATA_SIZE] = {
-BMI160_INIT_VALUE, BMI160_INIT_VALUE, BMI160_INIT_VALUE};
-u16 xy1y2[3] = {
-BMI160_INIT_VALUE, BMI160_INIT_VALUE, BMI160_INIT_VALUE};
-u16 v_xy1y2_u16[3] = {
-BMI160_INIT_VALUE, BMI160_INIT_VALUE, BMI160_INIT_VALUE};
-u8 v_busy_yas532_u8 = BMI160_INIT_VALUE;
-u16 v_temp_yas532_u16 = BMI160_INIT_VALUE;
-u8 v_overflow_yas532_u8 = BMI160_INIT_VALUE;
-
+#ifdef YAS537
+	u8 v_ouflow_u8 = BMI160_INIT_VALUE;
+	u8 v_busy_u8 = BMI160_INIT_VALUE;
+	u8 v_coil_stat_u8 = BMI160_INIT_VALUE;
+	u16 v_temperature_u16 = BMI160_INIT_VALUE;
+	s32 a_h_s32[BMI160_YAS_H_DATA_SIZE] = {
+	BMI160_INIT_VALUE, BMI160_INIT_VALUE, BMI160_INIT_VALUE};
+	s32 a_s_s32[BMI160_YAS_S_DATA_SIZE] = {
+	BMI160_INIT_VALUE, BMI160_INIT_VALUE, BMI160_INIT_VALUE};
+	u16 xy1y2[3] = {
+	BMI160_INIT_VALUE, BMI160_INIT_VALUE, BMI160_INIT_VALUE};
+#endif
+#ifdef YAS532
+	u16 v_xy1y2_u16[3] = {
+	BMI160_INIT_VALUE, BMI160_INIT_VALUE, BMI160_INIT_VALUE};
+	u8 v_busy_yas532_u8 = BMI160_INIT_VALUE;
+	u16 v_temp_yas532_u16 = BMI160_INIT_VALUE;
+	u8 v_overflow_yas532_u8 = BMI160_INIT_VALUE;
+#endif
 switch (v_mag_second_if_u8) {
 case BMI160_SEC_IF_BMM150:
 	/* x data*/
@@ -15741,6 +15956,7 @@ case BMI160_SEC_IF_BMM150:
 	bmi160_bmm150_mag_compensate_Z(v_mag_z_s16,
 	v_mag_r_u16);
 break;
+#ifdef AKM09911
 case BMI160_SEC_IF_AKM09911:
 	/* x data*/
 	v_mag_x_s16 = (s16)((mag_fifo_data.mag_x_msb
@@ -15764,6 +15980,8 @@ case BMI160_SEC_IF_AKM09911:
 	processed_data.z =
 	bmi160_bst_akm09911_compensate_Z(v_mag_z_s16);
 break;
+#endif
+#ifdef AKM09912
 case BMI160_SEC_IF_AKM09912:
 	/* x data*/
 	v_mag_x_s16 = (s16)((mag_fifo_data.mag_x_msb
@@ -15787,7 +16005,10 @@ case BMI160_SEC_IF_AKM09912:
 	processed_data.z =
 	bmi160_bst_akm09912_compensate_Z(v_mag_z_s16);
 break;
-case BMI160_SEC_IF_YAS532:
+#endif
+#ifdef YAS532
+case BMI160_SEC_IF_YAS532:{
+	u8 i = BMI160_INIT_VALUE;
 	/* read the xyy1 data*/
 	v_busy_yas532_u8 =
 	((mag_fifo_data.mag_x_lsb
@@ -15832,8 +16053,12 @@ case BMI160_SEC_IF_YAS532:
 	fifo_xyz_data.yas532_vector_xyz[1];
 	processed_data.z =
 	fifo_xyz_data.yas532_vector_xyz[2];
+	}
 break;
-case BMI160_SEC_IF_YAS537:
+#endif
+#ifdef YAS537
+case BMI160_SEC_IF_YAS537:{
+	u8 i = BMI160_INIT_VALUE;
 	/* read the busy flag*/
 	v_busy_u8 = mag_fifo_data.mag_y_lsb
 	>> BMI160_SHIFT_BIT_POSITION_BY_07_BITS;
@@ -15913,13 +16138,16 @@ case BMI160_SEC_IF_YAS537:
 	fifo_vector_xyz.yas537_vector_xyz[1];
 	processed_data.z =
 	fifo_vector_xyz.yas537_vector_xyz[2];
+	}
 break;
+#endif
 default:
 	com_rslt = E_BMI160_OUT_OF_RANGE;
 break;
 }
 	return com_rslt;
 }
+#ifdef FIFO_ENABLE
 /*!
  *	@brief This function used for reading the
  *	fifo data of  header mode
@@ -15949,14 +16177,14 @@ break;
  *
  *
  */
-BMI160_RETURN_FUNCTION_TYPE bmi160_read_fifo_header_data(u8 v_mag_if_u8)
+BMI160_RETURN_FUNCTION_TYPE bmi160_read_fifo_header_data(u8 v_mag_if_u8,
+struct bmi160_fifo_data_header_t *header_data)
 {
 	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
-	struct bmi160_fifo_data_header_t header_data;
 	/* read the whole fifo data*/
 	com_rslt =
 	bmi160_read_fifo_header_data_user_defined_length(
-	FIFO_FRAME, v_mag_if_u8, &header_data);
+	FIFO_FRAME, v_mag_if_u8, header_data);
 	return com_rslt;
 }
 /*!
@@ -16604,7 +16832,7 @@ struct bmi160_fifo_data_header_t *fifo_header_data)
 			v_last_return_stat_s8 = BMI160_FIFO_INDEX_LENGTH;
 		break;
 		}
-	if (v_last_return_stat_s8)
+	if (v_last_return_stat_s8 != 0)
 		break;
 	}
 return com_rslt;
@@ -16639,14 +16867,13 @@ return com_rslt;
  *
  */
 BMI160_RETURN_FUNCTION_TYPE bmi160_read_fifo_headerless_mode(
-u8 v_mag_if_u8) {
+u8 v_mag_if_u8, struct bmi160_fifo_data_header_less_t *headerless_data) {
 
 	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
-	struct bmi160_fifo_data_header_less_t headerless_data;
 	/* read the whole FIFO data*/
 	com_rslt =
 	bmi160_read_fifo_headerless_mode_user_defined_length(
-	FIFO_FRAME, &headerless_data, v_mag_if_u8);
+	FIFO_FRAME, headerless_data, v_mag_if_u8);
 	return com_rslt;
 }
 /*!
@@ -16655,6 +16882,8 @@ u8 v_mag_if_u8) {
  *
  *
  *	@param v_fifo_user_length_u16: The value of length of fifo read data
+ *	@param v_mag_if_mag_u8 : the mag interface data
+ *	@param fifo_data : the pointer to fifo_data_header_less_t structure
  *
  *	@note Configure the below functions for FIFO header less mode
  *	@note 1. bmi160_set_fifo_down_gyro
@@ -17120,6 +17349,7 @@ v_fifo_index_u16 < v_fifo_length_u16;) {
 	}
 	return com_rslt;
 }
+#endif
  /*!
  *	@brief This function used for read the compensated value of mag
  *	Before start reading the mag compensated data's
@@ -17151,7 +17381,7 @@ struct bmi160_mag_xyz_s32_t *mag_comp_xyz)
 	struct bmi160_mag_xyzr_t mag_xyzr;
 
 	com_rslt = bmi160_read_mag_xyzr(&mag_xyzr);
-	if (com_rslt)
+	if (com_rslt != 0)
 		return com_rslt;
 	/* Compensation for X axis */
 	mag_comp_xyz->x = bmi160_bmm150_mag_compensate_X(
@@ -17369,9 +17599,15 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_bmm150_mag_interface_init(u8 *v_chip_id_u8)
 	BMI160_RETURN_FUNCTION_TYPE com_rslt = BMI160_INIT_VALUE;
 	u8 v_pull_value_u8 = BMI160_INIT_VALUE;
 	u8 v_data_u8 = BMI160_INIT_VALUE;
+	u8 v_accel_power_mode_status = BMI160_INIT_VALUE;
+
+	com_rslt = bmi160_get_accel_power_mode_stat(
+		&v_accel_power_mode_status);
 	/* accel operation mode to normal*/
-	com_rslt = bmi160_set_command_register(ACCEL_MODE_NORMAL);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	if (v_accel_power_mode_status != BMI160_ACCEL_NORMAL_MODE) {
+		com_rslt += bmi160_set_command_register(ACCEL_MODE_NORMAL);
+		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	}
 	/* write the mag power mode as NORMAL*/
 	com_rslt += bmi160_set_mag_interface_normal();
 	/* register 0x7E write the 0x37, 0x9A and 0x30*/
@@ -17459,6 +17695,21 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_bmm150_mag_interface_init(u8 *v_chip_id_u8)
 	bmi160_get_mag_manual_enable(&v_data_u8);
 	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
 
+		switch (v_accel_power_mode_status) {
+
+		case BMI160_ACCEL_SUSPEND:
+			com_rslt += bmi160_set_command_register(ACCEL_SUSPEND);
+			p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+			break;
+
+		case BMI160_ACCEL_LOW_POWER:
+			com_rslt += bmi160_set_command_register(ACCEL_LOWPOWER);
+			p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+			break;
+
+		default:
+			break;
+	}
 	return com_rslt;
 }
  /*!
@@ -17529,17 +17780,18 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_bmm150_mag_wakeup(void)
 BMI160_RETURN_FUNCTION_TYPE bmi160_set_bmm150_mag_and_secondary_if_power_mode(
 u8 v_mag_sec_if_pow_mode_u8)
 {
+	  u8 v_accel_power_mode_status = BMI160_INIT_VALUE;
 	/* variable used for return the status of communication result*/
 	BMI160_RETURN_FUNCTION_TYPE com_rslt = BMI160_INIT_VALUE;
+
+	com_rslt = bmi160_get_accel_power_mode_stat(
+		&v_accel_power_mode_status);
 	/* set the accel power mode to NORMAL*/
-	com_rslt = bmi160_set_command_register(ACCEL_MODE_NORMAL);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* set mag interface manual mode*/
-	if (p_bmi160->mag_manual_enable != BMI160_MANUAL_ENABLE)	{
-		com_rslt += bmi160_set_mag_manual_enable(
-		BMI160_MANUAL_ENABLE);
+	if (v_accel_power_mode_status != BMI160_ACCEL_NORMAL_MODE) {
+		com_rslt += bmi160_set_command_register(ACCEL_MODE_NORMAL);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
 	}
+
 	switch (v_mag_sec_if_pow_mode_u8) {
 	case BMI160_MAG_FORCE_MODE:
 		/* set the secondary mag power mode as NORMAL*/
@@ -17565,6 +17817,21 @@ u8 v_mag_sec_if_pow_mode_u8)
 		com_rslt += bmi160_set_mag_manual_enable(
 		BMI160_MANUAL_DISABLE);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	}
+		switch (v_accel_power_mode_status) {
+
+		case BMI160_ACCEL_SUSPEND:
+			com_rslt += bmi160_set_command_register(ACCEL_SUSPEND);
+			p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+			break;
+
+		case BMI160_ACCEL_LOW_POWER:
+			com_rslt += bmi160_set_command_register(ACCEL_LOWPOWER);
+			p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+			break;
+
+		default:
+			break;
 	}
 	return com_rslt;
 }
@@ -17612,7 +17879,8 @@ u8 v_mag_pow_mode_u8)
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
 		if (com_rslt != SUCCESS)
 			return com_rslt;
-
+	} else {
+		com_rslt = SUCCESS;
 	}
 	switch (v_mag_pow_mode_u8) {
 	case FORCE_MODE:
@@ -18046,288 +18314,11 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_read_bmm150_mag_trim(void)
 
 	return com_rslt;
 }
- /*!
- *	@brief This function used for initialize
- *	the AKM09911 and AKM09912 sensor
- *
- *
- *	@param v_akm_i2c_address_u8: The value of device address
- *	AKM sensor   |  Slave address
- * --------------|---------------------
- *  AKM09911     |  AKM09911_I2C_ADDR_1
- *     -         |  and AKM09911_I2C_ADDR_2
- *  AKM09912     |  AKM09912_I2C_ADDR_1
- *     -         |  AKM09912_I2C_ADDR_2
- *     -         |  AKM09912_I2C_ADDR_3
- *     -         |  AKM09912_I2C_ADDR_4
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
-*/
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm_mag_interface_init(
-u8 v_akm_i2c_address_u8)
-{
-	/* variable used for return the status of communication result*/
-	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
-	u8 v_pull_value_u8 = BMI160_INIT_VALUE;
-	u8 v_data_u8 = BMI160_INIT_VALUE;
-	u8 v_akm_chip_id_u8 = BMI160_INIT_VALUE;
-	/* accel operation mode to normal*/
-	com_rslt = bmi160_set_command_register(ACCEL_MODE_NORMAL);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	com_rslt += bmi160_set_command_register(MAG_MODE_NORMAL);
-	p_bmi160->delay_msec(BMI160_AKM_INIT_DELAY);
-	bmi160_get_mag_power_mode_stat(&v_data_u8);
-	/* register 0x7E write the 0x37, 0x9A and 0x30*/
-	com_rslt += bmi160_set_command_register(BMI160_COMMAND_REG_ONE);
-	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
-	com_rslt += bmi160_set_command_register(BMI160_COMMAND_REG_TWO);
-	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
-	com_rslt += bmi160_set_command_register(BMI160_COMMAND_REG_THREE);
-	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
-	/*switch the page1*/
-	com_rslt += bmi160_set_target_page(BMI160_WRITE_TARGET_PAGE1);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	bmi160_get_target_page(&v_data_u8);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	com_rslt += bmi160_set_paging_enable(BMI160_WRITE_ENABLE_PAGE1);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	bmi160_get_paging_enable(&v_data_u8);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* enable the pullup configuration from
-	the register 0x05 bit 4 and 5  to 10*/
-	bmi160_get_pullup_configuration(&v_pull_value_u8);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	v_pull_value_u8 = v_pull_value_u8 | BMI160_PULL_UP_DATA;
-	com_rslt += bmi160_set_pullup_configuration(v_pull_value_u8);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+ #ifdef AKM09912
+ /***************************************************/
+/**\name	FUNCTIONS FOR AKM09912*/
+/***************************************************/
 
-	/*switch the page0*/
-	com_rslt += bmi160_set_target_page(BMI160_WRITE_TARGET_PAGE0);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	bmi160_get_target_page(&v_data_u8);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* Write the AKM09911 0r AKM09912 i2c address*/
-	com_rslt += bmi160_set_i2c_device_addr(v_akm_i2c_address_u8);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* enable the mag interface to manual mode*/
-	com_rslt += bmi160_set_mag_manual_enable(BMI160_MANUAL_ENABLE);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	bmi160_get_mag_manual_enable(&v_data_u8);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/*Enable the MAG interface */
-	com_rslt += bmi160_set_if_mode(BMI160_ENABLE_MAG_IF_MODE);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	bmi160_get_if_mode(&v_data_u8);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-
-	/* Set the AKM Fuse ROM mode */
-	/* Set value for fuse ROM mode*/
-	com_rslt += bmi160_set_mag_write_data(AKM_FUSE_ROM_MODE);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* AKM mode address is 0x31*/
-	com_rslt += bmi160_set_mag_write_addr(AKM_POWER_MODE_REG);
-	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
-	/* Read the Fuse ROM v_data_u8 from registers
-	0x60,0x61 and 0x62*/
-	/* ASAX v_data_u8 */
-	com_rslt += bmi160_read_bst_akm_sensitivity_data();
-	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
-	/* read the device id of the AKM sensor
-	if device id is 0x05 - AKM09911
-	if device id is 0x04 - AKM09912*/
-	com_rslt += bmi160_set_mag_read_addr(AKM_CHIP_ID_REG);
-	/* 0x04 is mag_x lsb register */
-	com_rslt += bmi160_read_reg(BMI160_MAG_DATA_READ_REG,
-	&v_akm_chip_id_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
-	/* Set value power down mode mode*/
-	com_rslt += bmi160_set_mag_write_data(AKM_POWER_DOWN_MODE_DATA);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* AKM mode address is 0x31*/
-	com_rslt += bmi160_set_mag_write_addr(AKM_POWER_MODE_REG);
-	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
-	/* Set AKM Force mode*/
-	com_rslt += bmi160_set_mag_write_data(
-	AKM_SINGLE_MEASUREMENT_MODE);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* AKM mode address is 0x31*/
-	com_rslt += bmi160_set_mag_write_addr(AKM_POWER_MODE_REG);
-	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
-	/* Set the AKM read xyz v_data_u8 address*/
-	com_rslt += bmi160_set_mag_read_addr(AKM_DATA_REGISTER);
-	/* write the mag v_data_bw_u8 as 25Hz*/
-	com_rslt += bmi160_set_mag_output_data_rate(
-	BMI160_MAG_OUTPUT_DATA_RATE_25HZ);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* Enable mag interface to auto mode*/
-	com_rslt += bmi160_set_mag_manual_enable(BMI160_MANUAL_DISABLE);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	bmi160_get_mag_manual_enable(&v_data_u8);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-
-	return com_rslt;
-}
- /*!
- *	@brief This function used for read the sensitivity data of
- *	AKM09911 and AKM09912
- *
- *	@note Before reading the mag sensitivity values
- *	make sure the following two points are addressed
- *	@note	1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note	2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
-*/
-BMI160_RETURN_FUNCTION_TYPE bmi160_read_bst_akm_sensitivity_data(void)
-{
-	/* This variable used for provide the communication
-	results*/
-	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
-	/* Array holding the sensitivity ax,ay and az data*/
-	u8 v_data_u8[BMI160_AKM_SENSITIVITY_DATA_SIZE] = {
-	BMI160_INIT_VALUE,
-	BMI160_INIT_VALUE, BMI160_INIT_VALUE};
-	/* read asax value */
-	com_rslt = bmi160_set_mag_read_addr(BMI160_BST_AKM_ASAX);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* 0x04 is secondary read mag x lsb register */
-	com_rslt += bmi160_read_reg(BMI160_MAG_DATA_READ_REG,
-	&v_data_u8[AKM_ASAX],
-	BMI160_GEN_READ_WRITE_DATA_LENGTH);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	akm_asa_data.asax = v_data_u8[AKM_ASAX];
-	/* read asay value */
-	com_rslt += bmi160_set_mag_read_addr(BMI160_BST_AKM_ASAY);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* 0x04 is secondary read mag x lsb register */
-	com_rslt += bmi160_read_reg(BMI160_MAG_DATA_READ_REG,
-	&v_data_u8[AKM_ASAY],
-	BMI160_GEN_READ_WRITE_DATA_LENGTH);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	akm_asa_data.asay = v_data_u8[AKM_ASAY];
-	/* read asaz value */
-	com_rslt += bmi160_set_mag_read_addr(BMI160_BST_AKM_ASAZ);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	/* 0x04 is secondary read mag x lsb register */
-	com_rslt += bmi160_read_reg(BMI160_MAG_DATA_READ_REG,
-	&v_data_u8[AKM_ASAZ],
-	BMI160_GEN_READ_WRITE_DATA_LENGTH);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-	akm_asa_data.asaz = v_data_u8[AKM_ASAZ];
-
-	return com_rslt;
-}
-/*!
- *	@brief This API used to get the compensated X data
- *	of AKM09911 the out put of X as s32
- *	@note	Before start reading the mag compensated X data
- *			make sure the following two points are addressed
- *	@note 1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note 2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
- *
- *
- *  @param v_bst_akm_x_s16 : The value of X data
- *
- *	@return results of compensated X data value output as s32
- *
- */
-s32 bmi160_bst_akm09911_compensate_X(s16 v_bst_akm_x_s16)
-{
-	/*Return value of AKM x compensated v_data_u8*/
-	s32 retval = BMI160_INIT_VALUE;
-	/* Convert raw v_data_u8 into compensated v_data_u8*/
-	retval = (v_bst_akm_x_s16 *
-	((akm_asa_data.asax/AKM09911_SENSITIVITY_DIV) +
-	BMI160_GEN_READ_WRITE_DATA_LENGTH));
-	return retval;
-}
-/*!
- *	@brief This API used to get the compensated Y data
- *	of AKM09911 the out put of Y as s32
- *	@note	Before start reading the mag compensated Y data
- *			make sure the following two points are addressed
- *	@note 1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note 2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
- *
- *
- *  @param v_bst_akm_y_s16 : The value of Y data
- *
- *	@return results of compensated Y data value output as s32
- *
- */
-s32 bmi160_bst_akm09911_compensate_Y(s16 v_bst_akm_y_s16)
-{
-	/*Return value of AKM y compensated v_data_u8*/
-	s32 retval = BMI160_INIT_VALUE;
-	/* Convert raw v_data_u8 into compensated v_data_u8*/
-	retval = (v_bst_akm_y_s16 *
-	((akm_asa_data.asay/AKM09911_SENSITIVITY_DIV) +
-	BMI160_GEN_READ_WRITE_DATA_LENGTH));
-	return retval;
-}
-/*!
- *	@brief This API used to get the compensated Z data
- *	of AKM09911 the out put of Z as s32
- *	@note	Before start reading the mag compensated Z data
- *			make sure the following two points are addressed
- *	@note 1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note 2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
- *
- *
- *  @param v_bst_akm_z_s16 : The value of Z data
- *
- *	@return results of compensated Z data value output as s32
- *
- */
-s32 bmi160_bst_akm09911_compensate_Z(s16 v_bst_akm_z_s16)
-{
-	/*Return value of AKM z compensated v_data_u8*/
-	s32 retval = BMI160_INIT_VALUE;
-	/* Convert raw v_data_u8 into compensated v_data_u8*/
-	retval = (v_bst_akm_z_s16 *
-	((akm_asa_data.asaz/AKM09911_SENSITIVITY_DIV) +
-	BMI160_GEN_READ_WRITE_DATA_LENGTH));
-	return retval;
-}
 /*!
  *	@brief This API used to get the compensated X data
  *	of AKM09912 the out put of X as s32
@@ -18424,48 +18415,7 @@ s32 bmi160_bst_akm09912_compensate_Z(s16 v_bst_akm_z_s16)
 	/ AKM09912_SENSITIVITY_DIV;
 	return retval;
 }
- /*!
- *	@brief This function used for read the compensated value of
- *	AKM09911
- *	@note Before start reading the mag compensated data's
- *	make sure the following two points are addressed
- *	@note	1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note	2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
 
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
-*/
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm09911_compensate_xyz(
-struct bmi160_bst_akm_xyz_t *bst_akm_xyz)
-{
-	/* variable used for return the status of communication result*/
-	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
-	struct bmi160_mag_t mag_xyz;
-
-	com_rslt = bmi160_read_mag_xyz(&mag_xyz, BST_AKM);
-	/* Compensation for X axis */
-	bst_akm_xyz->x = bmi160_bst_akm09911_compensate_X(mag_xyz.x);
-
-	/* Compensation for Y axis */
-	bst_akm_xyz->y = bmi160_bst_akm09911_compensate_Y(mag_xyz.y);
-
-	/* Compensation for Z axis */
-	bst_akm_xyz->z = bmi160_bst_akm09911_compensate_Z(mag_xyz.z);
-
-	return com_rslt;
-}
  /*!
  *	@brief This function used for read the compensated value of
  *	AKM09912
@@ -18508,10 +18458,111 @@ struct bmi160_bst_akm_xyz_t *bst_akm_xyz)
 
 	return com_rslt;
 }
+#endif
+#ifdef AKM09911
+/***************************************************/
+/**\name	FUNCTIONS FOR AKM09911 */
+/***************************************************/
 /*!
- *	@brief This function used for set the AKM09911 and AKM09912
- *	power mode.
- *	@note Before set the AKM power mode
+ *	@brief This API used to get the compensated X data
+ *	of AKM09911 the out put of X as s32
+ *	@note	Before start reading the mag compensated X data
+ *			make sure the following two points are addressed
+ *	@note 1.	Make sure the mag interface is enabled or not,
+ *		by using the bmi160_get_if_mode() function.
+ *		If mag interface is not enabled set the value of 0x02
+ *		to the function bmi160_get_if_mode(0x02)
+ *	@note 2.	And also confirm the secondary-interface power mode
+ *		is not in the SUSPEND mode.
+ *		by using the function bmi160_get_mag_pmu_status().
+ *		If the secondary-interface power mode is in SUSPEND mode
+ *		set the value of 0x19(NORMAL mode)by using the
+ *		bmi160_set_command_register(0x19) function.
+ *
+ *
+ *  @param v_bst_akm_x_s16 : The value of X data
+ *
+ *	@return results of compensated X data value output as s32
+ *
+ */
+s32 bmi160_bst_akm09911_compensate_X(s16 v_bst_akm_x_s16)
+{
+	/*Return value of AKM x compensated v_data_u8*/
+	s32 retval = BMI160_INIT_VALUE;
+	/* Convert raw v_data_u8 into compensated v_data_u8*/
+	retval = (v_bst_akm_x_s16 *
+	((akm_asa_data.asax/AKM09911_SENSITIVITY_DIV) +
+	BMI160_GEN_READ_WRITE_DATA_LENGTH));
+	return retval;
+}
+/*!
+ *	@brief This API used to get the compensated Y data
+ *	of AKM09911 the out put of Y as s32
+ *	@note	Before start reading the mag compensated Y data
+ *			make sure the following two points are addressed
+ *	@note 1.	Make sure the mag interface is enabled or not,
+ *		by using the bmi160_get_if_mode() function.
+ *		If mag interface is not enabled set the value of 0x02
+ *		to the function bmi160_get_if_mode(0x02)
+ *	@note 2.	And also confirm the secondary-interface power mode
+ *		is not in the SUSPEND mode.
+ *		by using the function bmi160_get_mag_pmu_status().
+ *		If the secondary-interface power mode is in SUSPEND mode
+ *		set the value of 0x19(NORMAL mode)by using the
+ *		bmi160_set_command_register(0x19) function.
+ *
+ *
+ *  @param v_bst_akm_y_s16 : The value of Y data
+ *
+ *	@return results of compensated Y data value output as s32
+ *
+ */
+s32 bmi160_bst_akm09911_compensate_Y(s16 v_bst_akm_y_s16)
+{
+	/*Return value of AKM y compensated v_data_u8*/
+	s32 retval = BMI160_INIT_VALUE;
+	/* Convert raw v_data_u8 into compensated v_data_u8*/
+	retval = (v_bst_akm_y_s16 *
+	((akm_asa_data.asay/AKM09911_SENSITIVITY_DIV) +
+	BMI160_GEN_READ_WRITE_DATA_LENGTH));
+	return retval;
+}
+/*!
+ *	@brief This API used to get the compensated Z data
+ *	of AKM09911 the out put of Z as s32
+ *	@note	Before start reading the mag compensated Z data
+ *			make sure the following two points are addressed
+ *	@note 1.	Make sure the mag interface is enabled or not,
+ *		by using the bmi160_get_if_mode() function.
+ *		If mag interface is not enabled set the value of 0x02
+ *		to the function bmi160_get_if_mode(0x02)
+ *	@note 2.	And also confirm the secondary-interface power mode
+ *		is not in the SUSPEND mode.
+ *		by using the function bmi160_get_mag_pmu_status().
+ *		If the secondary-interface power mode is in SUSPEND mode
+ *		set the value of 0x19(NORMAL mode)by using the
+ *		bmi160_set_command_register(0x19) function.
+ *
+ *
+ *  @param v_bst_akm_z_s16 : The value of Z data
+ *
+ *	@return results of compensated Z data value output as s32
+ *
+ */
+s32 bmi160_bst_akm09911_compensate_Z(s16 v_bst_akm_z_s16)
+{
+	/*Return value of AKM z compensated v_data_u8*/
+	s32 retval = BMI160_INIT_VALUE;
+	/* Convert raw v_data_u8 into compensated v_data_u8*/
+	retval = (v_bst_akm_z_s16 *
+	((akm_asa_data.asaz/AKM09911_SENSITIVITY_DIV) +
+	BMI160_GEN_READ_WRITE_DATA_LENGTH));
+	return retval;
+}
+ /*!
+ *	@brief This function used for read the compensated value of
+ *	AKM09911
+ *	@note Before start reading the mag compensated data's
  *	make sure the following two points are addressed
  *	@note	1.	Make sure the mag interface is enabled or not,
  *		by using the bmi160_get_if_mode() function.
@@ -18523,14 +18574,7 @@ struct bmi160_bst_akm_xyz_t *bst_akm_xyz)
  *		If the secondary-interface power mode is in SUSPEND mode
  *		set the value of 0x19(NORMAL mode)by using the
  *		bmi160_set_command_register(0x19) function.
- *
- *	@param v_akm_pow_mode_u8 : The value of akm power mode
- *  value   |    Description
- * ---------|--------------------
- *    0     |  AKM_POWER_DOWN_MODE
- *    1     |  AKM_SINGLE_MEAS_MODE
- *    2     |  FUSE_ROM_MODE
- *
+
  *
  *	@return results of bus communication function
  *	@retval 0 -> Success
@@ -18538,6 +18582,269 @@ struct bmi160_bst_akm_xyz_t *bst_akm_xyz)
  *
  *
 */
+BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm09911_compensate_xyz(
+struct bmi160_bst_akm_xyz_t *bst_akm_xyz)
+{
+	/* variable used for return the status of communication result*/
+	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
+	struct bmi160_mag_t mag_xyz;
+
+	com_rslt = bmi160_read_mag_xyz(&mag_xyz, BST_AKM);
+	/* Compensation for X axis */
+	bst_akm_xyz->x = bmi160_bst_akm09911_compensate_X(mag_xyz.x);
+
+	/* Compensation for Y axis */
+	bst_akm_xyz->y = bmi160_bst_akm09911_compensate_Y(mag_xyz.y);
+
+	/* Compensation for Z axis */
+	bst_akm_xyz->z = bmi160_bst_akm09911_compensate_Z(mag_xyz.z);
+
+	return com_rslt;
+}
+
+#endif
+
+#if defined AKM09911 || defined AKM09912
+/***************************************************/
+/**\name	FUNCTIONS FOR AKM09911 and AKM09912 */
+/***************************************************/
+	/*!
+	 *	@brief This function used for initialize
+	 *	the AKM09911 and AKM09912 sensor
+	 *
+	 *
+	 *	@param v_akm_i2c_address_u8: The value of device address
+	 *	AKM sensor   |  Slave address
+	 * --------------|---------------------
+	 *  AKM09911     |  AKM09911_I2C_ADDR_1
+	 *     -         |  and AKM09911_I2C_ADDR_2
+	 *  AKM09912     |  AKM09912_I2C_ADDR_1
+	 *     -         |  AKM09912_I2C_ADDR_2
+	 *     -         |  AKM09912_I2C_ADDR_3
+	 *     -         |  AKM09912_I2C_ADDR_4
+	 *
+	 *	@return results of bus communication function
+	 *	@retval 0 -> Success
+	 *	@retval -1 -> Error
+	 *
+	 *
+	*/
+BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm_mag_interface_init(
+u8 v_akm_i2c_address_u8)
+{
+	/* variable used for return the status of communication result*/
+	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
+	u8 v_pull_value_u8 = BMI160_INIT_VALUE;
+	u8 v_data_u8 = BMI160_INIT_VALUE;
+	u8 v_akm_chip_id_u8 = BMI160_INIT_VALUE;
+	u8 v_accel_power_mode_status = BMI160_INIT_VALUE;
+
+	com_rslt = bmi160_get_accel_power_mode_stat(
+		&v_accel_power_mode_status);
+	/* accel operation mode to normal*/
+	if (v_accel_power_mode_status != BMI160_ACCEL_NORMAL_MODE) {
+		com_rslt += bmi160_set_command_register(ACCEL_MODE_NORMAL);
+		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	}
+	com_rslt += bmi160_set_command_register(MAG_MODE_NORMAL);
+	p_bmi160->delay_msec(BMI160_AKM_INIT_DELAY);
+	bmi160_get_mag_power_mode_stat(&v_data_u8);
+	/* register 0x7E write the 0x37, 0x9A and 0x30*/
+	com_rslt += bmi160_set_command_register(BMI160_COMMAND_REG_ONE);
+	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+	com_rslt += bmi160_set_command_register(BMI160_COMMAND_REG_TWO);
+	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+	com_rslt += bmi160_set_command_register(
+	BMI160_COMMAND_REG_THREE);
+	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+	/*switch the page1*/
+	com_rslt += bmi160_set_target_page(BMI160_WRITE_TARGET_PAGE1);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	bmi160_get_target_page(&v_data_u8);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	com_rslt += bmi160_set_paging_enable(BMI160_WRITE_ENABLE_PAGE1);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	bmi160_get_paging_enable(&v_data_u8);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/* enable the pullup configuration from
+	the register 0x05 bit 4 and 5  to 10*/
+	bmi160_get_pullup_configuration(&v_pull_value_u8);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	v_pull_value_u8 = v_pull_value_u8 | BMI160_PULL_UP_DATA;
+	com_rslt += bmi160_set_pullup_configuration(v_pull_value_u8);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+
+	/*switch the page0*/
+	com_rslt += bmi160_set_target_page(BMI160_WRITE_TARGET_PAGE0);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	bmi160_get_target_page(&v_data_u8);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/* Write the AKM09911 0r AKM09912 i2c address*/
+	com_rslt += bmi160_set_i2c_device_addr(v_akm_i2c_address_u8);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/* enable the mag interface to manual mode*/
+	com_rslt += bmi160_set_mag_manual_enable(BMI160_MANUAL_ENABLE);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	bmi160_get_mag_manual_enable(&v_data_u8);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/*Enable the MAG interface */
+	com_rslt += bmi160_set_if_mode(BMI160_ENABLE_MAG_IF_MODE);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	bmi160_get_if_mode(&v_data_u8);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+
+	/* Set the AKM Fuse ROM mode */
+	/* Set value for fuse ROM mode*/
+	com_rslt += bmi160_set_mag_write_data(AKM_FUSE_ROM_MODE);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/* AKM mode address is 0x31*/
+	com_rslt += bmi160_set_mag_write_addr(AKM_POWER_MODE_REG);
+	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+	/* Read the Fuse ROM v_data_u8 from registers
+	0x60,0x61 and 0x62*/
+	/* ASAX v_data_u8 */
+	com_rslt += bmi160_read_bst_akm_sensitivity_data();
+	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+	/* read the device id of the AKM sensor
+	if device id is 0x05 - AKM09911
+	if device id is 0x04 - AKM09912*/
+	com_rslt += bmi160_set_mag_read_addr(AKM_CHIP_ID_REG);
+	/* 0x04 is mag_x lsb register */
+	com_rslt += bmi160_read_reg(BMI160_MAG_DATA_READ_REG,
+	&v_akm_chip_id_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
+	/* Set value power down mode mode*/
+	com_rslt += bmi160_set_mag_write_data(AKM_POWER_DOWN_MODE_DATA);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/* AKM mode address is 0x31*/
+	com_rslt += bmi160_set_mag_write_addr(AKM_POWER_MODE_REG);
+	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+	/* Set AKM Force mode*/
+	com_rslt += bmi160_set_mag_write_data(
+	AKM_SINGLE_MEASUREMENT_MODE);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/* AKM mode address is 0x31*/
+	com_rslt += bmi160_set_mag_write_addr(AKM_POWER_MODE_REG);
+	p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+	/* Set the AKM read xyz v_data_u8 address*/
+	com_rslt += bmi160_set_mag_read_addr(AKM_DATA_REGISTER);
+	/* write the mag v_data_bw_u8 as 25Hz*/
+	com_rslt += bmi160_set_mag_output_data_rate(
+	BMI160_MAG_OUTPUT_DATA_RATE_25HZ);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/* Enable mag interface to auto mode*/
+	com_rslt += bmi160_set_mag_manual_enable(BMI160_MANUAL_DISABLE);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	bmi160_get_mag_manual_enable(&v_data_u8);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+		switch (v_accel_power_mode_status) {
+
+		case BMI160_ACCEL_SUSPEND:
+			com_rslt += bmi160_set_command_register(ACCEL_SUSPEND);
+			p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+			break;
+
+		case BMI160_ACCEL_LOW_POWER:
+			com_rslt += bmi160_set_command_register(ACCEL_LOWPOWER);
+			p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+			break;
+
+		default:
+			break;
+	}
+	return com_rslt;
+}
+	/*!
+	 *	@brief This function used for read the sensitivity data of
+	 *	AKM09911 and AKM09912
+	 *
+	 *	@note Before reading the mag sensitivity values
+	 *	make sure the following two points are addressed
+	 *	@note	1.	Make sure the mag interface is enabled or not,
+	 *		by using the bmi160_get_if_mode() function.
+	 *		If mag interface is not enabled set the value of 0x02
+	 *		to the function bmi160_get_if_mode(0x02)
+	 *	@note	2.	And also confirm the secondary-interface power mode
+	 *		is not in the SUSPEND mode.
+	 *		by using the function bmi160_get_mag_pmu_status().
+	 *		If the secondary-interface power mode is in SUSPEND mode
+	 *		set the value of 0x19(NORMAL mode)by using the
+	 *		bmi160_set_command_register(0x19) function.
+	 *
+	 *	@return results of bus communication function
+	 *	@retval 0 -> Success
+	 *	@retval -1 -> Error
+	 *
+	 *
+	*/
+BMI160_RETURN_FUNCTION_TYPE bmi160_read_bst_akm_sensitivity_data(void)
+{
+	/* This variable used for provide the communication
+	results*/
+	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
+	/* Array holding the sensitivity ax,ay and az data*/
+	u8 v_data_u8[BMI160_AKM_SENSITIVITY_DATA_SIZE] = {
+	BMI160_INIT_VALUE,
+	BMI160_INIT_VALUE, BMI160_INIT_VALUE};
+	/* read asax value */
+	com_rslt = bmi160_set_mag_read_addr(BMI160_BST_AKM_ASAX);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/* 0x04 is secondary read mag x lsb register */
+	com_rslt += bmi160_read_reg(BMI160_MAG_DATA_READ_REG,
+	&v_data_u8[AKM_ASAX],
+	BMI160_GEN_READ_WRITE_DATA_LENGTH);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	akm_asa_data.asax = v_data_u8[AKM_ASAX];
+	/* read asay value */
+	com_rslt += bmi160_set_mag_read_addr(BMI160_BST_AKM_ASAY);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/* 0x04 is secondary read mag x lsb register */
+	com_rslt += bmi160_read_reg(BMI160_MAG_DATA_READ_REG,
+	&v_data_u8[AKM_ASAY],
+	BMI160_GEN_READ_WRITE_DATA_LENGTH);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	akm_asa_data.asay = v_data_u8[AKM_ASAY];
+	/* read asaz value */
+	com_rslt += bmi160_set_mag_read_addr(BMI160_BST_AKM_ASAZ);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	/* 0x04 is secondary read mag x lsb register */
+	com_rslt += bmi160_read_reg(BMI160_MAG_DATA_READ_REG,
+	&v_data_u8[AKM_ASAZ],
+	BMI160_GEN_READ_WRITE_DATA_LENGTH);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	akm_asa_data.asaz = v_data_u8[AKM_ASAZ];
+
+	return com_rslt;
+}
+	/*!
+	 *	@brief This function used for set the AKM09911 and AKM09912
+	 *	power mode.
+	 *	@note Before set the AKM power mode
+	 *	make sure the following two points are addressed
+	 *	@note	1.	Make sure the mag interface is enabled or not,
+	 *		by using the bmi160_get_if_mode() function.
+	 *		If mag interface is not enabled set the value of 0x02
+	 *		to the function bmi160_get_if_mode(0x02)
+	 *	@note	2.	And also confirm the secondary-interface power mode
+	 *		is not in the SUSPEND mode.
+	 *		by using the function bmi160_get_mag_pmu_status().
+	 *		If the secondary-interface power mode is in SUSPEND mode
+	 *		set the value of 0x19(NORMAL mode)by using the
+	 *		bmi160_set_command_register(0x19) function.
+	 *
+	 *	@param v_akm_pow_mode_u8 : The value of akm power mode
+	 *  value   |    Description
+	 * ---------|--------------------
+	 *    0     |  AKM_POWER_DOWN_MODE
+	 *    1     |  AKM_SINGLE_MEAS_MODE
+	 *    2     |  FUSE_ROM_MODE
+	 *
+	 *
+	 *	@return results of bus communication function
+	 *	@retval 0 -> Success
+	 *	@retval -1 -> Error
+	 *
+	 *
+	*/
 BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm_set_powermode(
 u8 v_akm_pow_mode_u8)
 {
@@ -18552,10 +18859,13 @@ u8 v_akm_pow_mode_u8)
 	switch (v_akm_pow_mode_u8) {
 	case AKM_POWER_DOWN_MODE:
 		/* Set the power mode of AKM as power down mode*/
-		com_rslt += bmi160_set_mag_write_data(AKM_POWER_DOWN_MODE_DATA);
+		com_rslt += bmi160_set_mag_write_data(
+		AKM_POWER_DOWN_MODE_DATA);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-		com_rslt += bmi160_set_mag_write_addr(AKM_POWER_MODE_REG);
-		p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+		com_rslt += bmi160_set_mag_write_addr(
+		AKM_POWER_MODE_REG);
+		p_bmi160->delay_msec(
+		BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
 	break;
 	case AKM_SINGLE_MEAS_MODE:
 		/* Set the power mode of AKM as
@@ -18563,25 +18873,34 @@ u8 v_akm_pow_mode_u8)
 		com_rslt += bmi160_set_mag_write_data
 		(AKM_SINGLE_MEASUREMENT_MODE);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-		com_rslt += bmi160_set_mag_write_addr(AKM_POWER_MODE_REG);
-		p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+		com_rslt += bmi160_set_mag_write_addr(
+		AKM_POWER_MODE_REG);
+		p_bmi160->delay_msec(
+		BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
 		com_rslt += bmi160_set_mag_read_addr(AKM_DATA_REGISTER);
 	break;
 	case FUSE_ROM_MODE:
 		/* Set the power mode of AKM as
 		Fuse ROM mode*/
-		com_rslt += bmi160_set_mag_write_data(AKM_FUSE_ROM_MODE);
+		com_rslt += bmi160_set_mag_write_data(
+		AKM_FUSE_ROM_MODE);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-		com_rslt += bmi160_set_mag_write_addr(AKM_POWER_MODE_REG);
-		p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+		com_rslt += bmi160_set_mag_write_addr(
+		AKM_POWER_MODE_REG);
+		p_bmi160->delay_msec(
+		BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
 		/* Sensitivity v_data_u8 */
 		com_rslt += bmi160_read_bst_akm_sensitivity_data();
-		p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+		p_bmi160->delay_msec(
+		BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
 		/* power down mode*/
-		com_rslt += bmi160_set_mag_write_data(AKM_POWER_DOWN_MODE);
+		com_rslt += bmi160_set_mag_write_data(
+		AKM_POWER_DOWN_MODE);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-		com_rslt += bmi160_set_mag_write_addr(AKM_POWER_MODE_REG);
-		p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+		com_rslt += bmi160_set_mag_write_addr(
+		AKM_POWER_MODE_REG);
+		p_bmi160->delay_msec(
+		BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
 	break;
 	default:
 		com_rslt = E_BMI160_OUT_OF_RANGE;
@@ -18595,40 +18914,48 @@ u8 v_akm_pow_mode_u8)
 	}
 	return com_rslt;
 }
- /*!
- *	@brief This function used for set the magnetometer
- *	power mode of AKM09911 and AKM09912
- *	@note Before set the mag power mode
- *	make sure the following two point is addressed
- *		Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *
- *	@param v_mag_sec_if_pow_mode_u8 : The value of secondary if power mode
- *  value   |    Description
- * ---------|--------------------
- *    0     |  BMI160_MAG_FORCE_MODE
- *    1     |  BMI160_MAG_SUSPEND_MODE
- *
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
-*/
-BMI160_RETURN_FUNCTION_TYPE bmi160_set_bst_akm_and_secondary_if_powermode(
+	 /*!
+	 *	@brief This function used for set the magnetometer
+	 *	power mode of AKM09911 and AKM09912
+	 *	@note Before set the mag power mode
+	 *	make sure the following two point is addressed
+	 *		Make sure the mag interface is enabled or not,
+	 *		by using the bmi160_get_if_mode() function.
+	 *		If mag interface is not enabled set the value of 0x02
+	 *		to the function bmi160_get_if_mode(0x02)
+	 *
+	 *	@param v_mag_sec_if_pow_mode_u8 : The value of secondary if power mode
+	 *  value   |    Description
+	 * ---------|--------------------
+	 *    0     |  BMI160_MAG_FORCE_MODE
+	 *    1     |  BMI160_MAG_SUSPEND_MODE
+	 *
+	 *
+	 *	@return results of bus communication function
+	 *	@retval 0 -> Success
+	 *	@retval -1 -> Error
+	 *
+	 *
+	*/
+BMI160_RETURN_FUNCTION_TYPE
+bmi160_set_bst_akm_and_secondary_if_powermode(
 u8 v_mag_sec_if_pow_mode_u8)
 {
+	u8 v_accel_power_mode_status = BMI160_INIT_VALUE;
 	/* variable used for return the status of communication result*/
 	BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
+
+	com_rslt = bmi160_get_accel_power_mode_stat(
+		&v_accel_power_mode_status);
+
 	/* accel operation mode to normal*/
-	com_rslt = bmi160_set_command_register(ACCEL_MODE_NORMAL);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	if (v_accel_power_mode_status != BMI160_ACCEL_NORMAL_MODE) {
+		com_rslt += bmi160_set_command_register(ACCEL_MODE_NORMAL);
+		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	}
 	/* set mag interface manual mode*/
 	if (p_bmi160->mag_manual_enable != BMI160_MANUAL_ENABLE) {
-		com_rslt = bmi160_set_mag_manual_enable(
+		com_rslt += bmi160_set_mag_manual_enable(
 		BMI160_MANUAL_ENABLE);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
 	}
@@ -18637,18 +18964,24 @@ u8 v_mag_sec_if_pow_mode_u8)
 		/* set the secondary mag power mode as NORMAL*/
 		com_rslt += bmi160_set_mag_interface_normal();
 		/* set the akm power mode as single measurement mode*/
-		com_rslt += bmi160_bst_akm_set_powermode(AKM_SINGLE_MEAS_MODE);
-		p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+		com_rslt += bmi160_bst_akm_set_powermode(
+		AKM_SINGLE_MEAS_MODE);
+		p_bmi160->delay_msec(
+		BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
 		com_rslt += bmi160_set_mag_read_addr(AKM_DATA_REGISTER);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
 	break;
 	case BMI160_MAG_SUSPEND_MODE:
 		/* set the akm power mode as power down mode*/
-		com_rslt += bmi160_bst_akm_set_powermode(AKM_POWER_DOWN_MODE);
-		p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+		com_rslt += bmi160_bst_akm_set_powermode(
+		AKM_POWER_DOWN_MODE);
+		p_bmi160->delay_msec(
+		BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
 		/* set the secondary mag power mode as SUSPEND*/
-		com_rslt += bmi160_set_command_register(MAG_MODE_SUSPEND);
-		p_bmi160->delay_msec(BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
+		com_rslt += bmi160_set_command_register(
+		MAG_MODE_SUSPEND);
+		p_bmi160->delay_msec(
+		BMI160_SEC_INTERFACE_GEN_READ_WRITE_DELAY);
 	break;
 	default:
 		com_rslt = E_BMI160_OUT_OF_RANGE;
@@ -18659,8 +18992,28 @@ u8 v_mag_sec_if_pow_mode_u8)
 		com_rslt += bmi160_set_mag_manual_enable(
 		BMI160_MANUAL_DISABLE);
 		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	switch (v_accel_power_mode_status) {
+
+	case BMI160_ACCEL_SUSPEND:
+		com_rslt += bmi160_set_command_register(ACCEL_SUSPEND);
+		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+		break;
+
+	case BMI160_ACCEL_LOW_POWER:
+		com_rslt += bmi160_set_command_register(ACCEL_LOWPOWER);
+		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+		break;
+
+	default:
+		break;
+	}
 	return com_rslt;
 }
+#endif
+#ifdef YAS532
+/***************************************************/
+/**\name	FUNCTIONS FOR YAMAH-YAS532 */
+/***************************************************/
 /*!
  *	@brief This function used for read the YAMAH-YAS532 init
  *
@@ -18680,9 +19033,15 @@ void)
 	u8 v_pull_value_u8 = BMI160_INIT_VALUE;
 	u8 v_data_u8 = BMI160_INIT_VALUE;
 	u8 i = BMI160_INIT_VALUE;
+	u8 v_accel_power_mode_status = BMI160_INIT_VALUE;
+
+	com_rslt = bmi160_get_accel_power_mode_stat(
+		&v_accel_power_mode_status);
 	/* accel operation mode to normal*/
-	com_rslt = bmi160_set_command_register(ACCEL_MODE_NORMAL);
-	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	if (v_accel_power_mode_status != BMI160_ACCEL_NORMAL_MODE) {
+		com_rslt += bmi160_set_command_register(ACCEL_MODE_NORMAL);
+		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+	}
 	/* write mag power mode as NORMAL*/
 	com_rslt += bmi160_set_mag_interface_normal();
 	/* register 0x7E write the 0x37, 0x9A and 0x30*/
@@ -18767,6 +19126,20 @@ void)
 	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
 	bmi160_get_mag_manual_enable(&v_data_u8);
 	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+		switch (v_accel_power_mode_status) {
+
+		case BMI160_ACCEL_SUSPEND:
+			com_rslt += bmi160_set_command_register(ACCEL_SUSPEND);
+			p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+			break;
+
+		case BMI160_ACCEL_LOW_POWER:
+			com_rslt += bmi160_set_command_register(ACCEL_LOWPOWER);
+			p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+			break;
+		default:
+			break;
+	}
 
 	return com_rslt;
 }
@@ -19156,14 +19529,6 @@ u16 *v_temp_u16, u16 *v_xy1y2_u16, u8 *v_overflow_u8)
 		p_bmi160->BMI160_BUS_READ_FUNC(p_bmi160->dev_addr,
 		BMI160_USER_DATA_MAG_X_LSB__REG,
 		v_data_u8, BMI160_MAG_YAS_DATA_LENGTH);
-		 v_data_u8[0] = 0x31;
-		 v_data_u8[1] = 0xF8;
-		 v_data_u8[2] = 0x49;
-		 v_data_u8[3] = 0x3B;
-		 v_data_u8[4] = 0x45;
-		 v_data_u8[5] = 0x8F;
-		 v_data_u8[6] = 0x31;
-		 v_data_u8[7] = 0x90;
 		/* read the xyy1 data*/
 		*v_busy_u8 =
 		((v_data_u8[0]
@@ -19371,14 +19736,15 @@ if (v_busy_u8)
 }
 /*!
  *	@brief This function used for YAS532 sensor data
- *	@param	v_acquisition_command_u8	:	the value of CMDR
+ *
  *
  * @param v_xy1y2_u16 : the vector xyz output
  * @param v_overflow_s8 : the value of overflow
  * @param v_temp_correction_u8 : the value of temperate correction enable
+ * @param v_temp_u16 : the value of temperature
+ * @param v_busy_u8 : the value denoting the sensor is busy
  *
- *
-  *	@return results of bus communication function
+ *	@return results of bus communication function
  *	@retval 0 -> Success
  *	@retval -1 -> Error
  *
@@ -19490,14 +19856,12 @@ if (v_busy_u8)
 	  yas532_data.last_raw[i] = v_temp_u16;
 	return com_rslt;
 }
-/*!
- *	@brief This function used for YAS532 write data acquisition
- *	@param
- */
+
 /*!
  *	@brief This function used for YAS532 write data acquisition
  *	command register write
- *	@param	v_command_reg_data_u8	:	the value of data acquisition
+ *	@param v_command_reg_data_u8	:	the value of data acquisition
+ *
  *	acquisition_command  |   operation
  *  ---------------------|-------------------------
  *         0x17          | turn on the acquisition coil
@@ -19599,6 +19963,11 @@ const s8 *p_offset_s8)
 		com_rslt = bmi160_set_mag_manual_enable(BMI160_MANUAL_DISABLE);
 	return com_rslt;
 }
+#endif
+#ifdef YAS537
+/***************************************************/
+/**\name	FUNCTIONS FOR YAMAHA-YAS537 */
+/***************************************************/
 /*!
  *	@brief This function used to init the YAMAH-YAS537
  *
@@ -19618,9 +19987,15 @@ BMI160_RETURN_FUNCTION_TYPE com_rslt = E_BMI160_COMM_RES;
 u8 v_pull_value_u8 = BMI160_INIT_VALUE;
 u8 v_data_u8 = BMI160_INIT_VALUE;
 u8 i = BMI160_INIT_VALUE;
+u8 v_accel_power_mode_status = BMI160_INIT_VALUE;
+
+com_rslt = bmi160_get_accel_power_mode_stat(
+	&v_accel_power_mode_status);
 /* accel operation mode to normal*/
-com_rslt = bmi160_set_command_register(ACCEL_MODE_NORMAL);
-p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+if (v_accel_power_mode_status != BMI160_ACCEL_NORMAL_MODE) {
+	com_rslt += bmi160_set_command_register(ACCEL_MODE_NORMAL);
+	p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+}
 /* write mag power mode as NORMAL*/
 com_rslt += bmi160_set_mag_interface_normal();
 /* register 0x7E write the 0x37, 0x9A and 0x30*/
@@ -19672,7 +20047,7 @@ com_rslt += bmi160_read_reg(BMI160_MAG_DATA_READ_REG,
 &v_data_u8, BMI160_GEN_READ_WRITE_DATA_LENGTH);
 yas537_data.dev_id = v_data_u8;
 p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
-/* Read the YAS532 calibration data*/
+/* Read the YAS537 calibration data*/
 
 com_rslt +=
 bmi160_bst_yamaha_yas537_calib_values(
@@ -19699,6 +20074,22 @@ BMI160_MANUAL_DISABLE);
 p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
 bmi160_get_mag_manual_enable(&v_data_u8);
 p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+
+	switch (v_accel_power_mode_status) {
+
+	case BMI160_ACCEL_SUSPEND:
+		com_rslt += bmi160_set_command_register(ACCEL_SUSPEND);
+		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+		break;
+
+	case BMI160_ACCEL_LOW_POWER:
+		com_rslt += bmi160_set_command_register(ACCEL_LOWPOWER);
+		p_bmi160->delay_msec(BMI160_GEN_READ_WRITE_DELAY);
+		break;
+
+	default:
+		break;
+}
 return com_rslt;
 }
 /*!
@@ -20110,8 +20501,8 @@ u8 v_command_reg_data_u8)
 
 }
 /*!
- *	@brief This function used for read the
- *	YAMAHA YAS537 xy1y2 data
+ *	@brief This function used for processing the
+ *	YAMAHA YAS537 xy1y2 raw data
  *
  *	@param xy1y2: The value of raw xy1y2 data
  *	@param xyz: The value of  xyz data
@@ -20244,15 +20635,17 @@ u16 *v_temperature_u16, u16 *xy1y2, u8 *v_ouflow_u8)
 
 }
 /*!
- *	@brief This function used for read the
- *	YAMAHA YAS537 xy1y2 data
- *
- *	@param v_ouflow_u8: The value of overflow
+ *	@brief This function used for detecting whether the mag
+ *  data obtained is valid or not
  *
  *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
+ *	@param v_cur_u16: The value of current mag data
+ *  @param v_last_u16: The value of last mag data
+ *
+ *
+ *	@return results of magnetic field data's validity
+ *	@retval 0 -> VALID DATA
+ *	@retval 1 -> INVALID DATA
  *
  *
  */
@@ -20272,7 +20665,7 @@ u16 *v_cur_u16, u16 *v_last_u16)
  *	YAMAHA YAS537 xy1y2 data
  *
  *	@param v_ouflow_u8: The value of overflow
- *
+ *	@param *vector_xyz : yas vector structure pointer
  *
  *	@return results of bus communication function
  *	@retval 0 -> Success
@@ -20453,6 +20846,7 @@ break;
 return com_rslt;
 
 }
+#endif
 /*!
  *	@brief This function used for reading
  *	bmi160_t structure

@@ -1,13 +1,13 @@
 /** \mainpage
 *
 ****************************************************************************
-* Copyright (C) 2014 Bosch Sensortec GmbH
+* Copyright (C) 2016 Bosch Sensortec GmbH
 *
 * File : bmi160.h
 *
-* Date : 2014/10/27
+* Date : 2016/03/15
 *
-* Revision : 2.0.6 $
+* Revision : 2.0.7 $
 *
 * Usage: Sensor Driver for BMI160 sensor
 *
@@ -393,6 +393,14 @@ u8 *, u8)
 register_addr, register_data, rd_len)\
 burst_read(device_addr, register_addr, register_data, rd_len)
 
+/* enable the macro for FIFO functionalities when FIFO is used*/
+#define FIFO_ENABLE
+/* enable the macro of the secondary interface which is used */
+/* used to select the secondary interface as YAS537 */
+#define YAS537
+/*#define YAS532*/  /* used to select the secondary interface as YAS532 */
+/*#define AKM09911*/ /* used to select the secondary interface as AKM09911 */
+/*#define AKM09912 */ /* used to select the secondary interface as AKM09912 */
 
 #define BMI160_MDELAY_DATA_TYPE                 u32
 
@@ -436,6 +444,10 @@ burst_read(device_addr, register_addr, register_data, rd_len)
 #define  BMI160_OUTPUT_DATA_RATE5	(5)
 #define  BMI160_OUTPUT_DATA_RATE6	(14)
 #define  BMI160_OUTPUT_DATA_RATE7	(15)
+
+/*unmap significant motion*/
+#define V_ANY_MOTION_INTR_STAT   (4)
+#define V_ANY_MOTION_AXIS_STAT   (7)
 
 /* accel range check*/
 #define BMI160_ACCEL_RANGE0  (3)
@@ -496,6 +508,7 @@ burst_read(device_addr, register_addr, register_data, rd_len)
 #define BMI160_MAX_ORIENT_THETA             (63)
 #define BMI160_MAX_FLAT_THETA               (63)
 
+#ifdef FIFO_ENABLE
 /* FIFO index definitions*/
 #define BMI160_FIFO_X_LSB_DATA			(0)
 #define BMI160_FIFO_X_MSB_DATA			(1)
@@ -580,6 +593,10 @@ burst_read(device_addr, register_addr, register_data, rd_len)
 #define BMI160_FIFO_AG_LENGTH           (12)
 #define BMI160_FIFO_AMG_LENGTH          (20)
 #define BMI160_FIFO_MA_OR_MG_LENGTH     (14)
+#define	BMI160_FIFO_LENGTH_LSB_BYTE    (0)
+#define	BMI160_FIFO_LENGTH_MSB_BYTE    (1)
+
+#endif
 
 /* bus read and write length for mag, accel and gyro*/
 #define BMI160_MAG_X_DATA_LENGTH     (2)
@@ -647,6 +664,14 @@ burst_read(device_addr, register_addr, register_data, rd_len)
 #define BMI160_YAS_XY1Y2T_DATA_SIZE       (8)
 #define BMI160_YAS537_CALIB_DATA_SIZE     (17)
 #define BMI160_YAS532_CALIB_DATA_SIZE     (14)
+#define BMI160_GYRO_ACCEL_SENSORTIME_DATA_SIZE		(15)
+#define BMI160_ACCEL_SENSORTIME_DATA_SIZE			(9)
+
+
+#define BMI160_GYRO_ACCEL_SENSORTIME_DATA (1)
+#define BMI160_ACCEL_SENSORTIME_DATA (0)
+
+
 
 /****************************************************/
 /**\name	ARRAY PARAMETER DEFINITIONS      */
@@ -700,10 +725,6 @@ burst_read(device_addr, register_addr, register_data, rd_len)
 
 #define	BMI160_TEMP_LSB_BYTE    (0)
 #define	BMI160_TEMP_MSB_BYTE    (1)
-
-#define	BMI160_FIFO_LENGTH_LSB_BYTE    (0)
-#define	BMI160_FIFO_LENGTH_MSB_BYTE    (1)
-
 #define	BMI160_STEP_COUNT_LSB_BYTE    (0)
 #define	BMI160_STEP_COUNT_MSB_BYTE    (1)
 /****************************************************/
@@ -757,11 +778,11 @@ burst_read(device_addr, register_addr, register_data, rd_len)
 #define BMI160_USER_DATA_11_ADDR				(0X0F)
 #define BMI160_USER_DATA_12_ADDR				(0X10)
 #define BMI160_USER_DATA_13_ADDR				(0X11)
-#define BMI160_USER_DATA_14_ADDR				(0X12)
-#define BMI160_USER_DATA_15_ADDR				(0X13)
 /*******************/
 /**\name ACCEL DATA REGISTERS */
 /*******************/
+#define BMI160_USER_DATA_14_ADDR				(0X12)
+#define BMI160_USER_DATA_15_ADDR				(0X13)
 #define BMI160_USER_DATA_16_ADDR				(0X14)
 #define BMI160_USER_DATA_17_ADDR				(0X15)
 #define BMI160_USER_DATA_18_ADDR				(0X16)
@@ -814,6 +835,7 @@ burst_read(device_addr, register_addr, register_data, rd_len)
 /**\name MAG CONFIG REGISTERS  FOR ODR*/
 /******************************************************/
 #define BMI160_USER_MAG_CONFIG_ADDR				(0X44)
+#ifdef FIFO_ENABLE
 /***************************************************/
 /**\name REGISTER FOR GYRO AND ACCEL DOWNSAMPLING RATES FOR FIFO*/
 /******************************************************/
@@ -823,6 +845,8 @@ burst_read(device_addr, register_addr, register_data, rd_len)
 /******************************************************/
 #define BMI160_USER_FIFO_CONFIG_0_ADDR          (0X46)
 #define BMI160_USER_FIFO_CONFIG_1_ADDR          (0X47)
+#endif
+
 /***************************************************/
 /**\name MAG INTERFACE REGISTERS*/
 /******************************************************/
@@ -1169,6 +1193,14 @@ s16 y;/**<accel Y  data*/
 s16 z;/**<accel Z  data*/
 };
 /*!
+ * @brief Structure containing accel gyro data and sensor time
+ */
+struct bmi160_sensortime_accel_gyro_data {
+struct bmi160_gyro_t gyro; /**<gyro data structure*/
+struct bmi160_accel_t accel;/**<accel data structure*/
+u32 v_sensor_time_u32;/**<Sensor time value*/
+};
+/*!
  * @brief Structure bmm150 mag compensated data with s32 output
  */
 struct bmi160_mag_xyz_s32_t {
@@ -1196,121 +1228,7 @@ s8 dig_xy2;/**<BMM150 trim xy2 data*/
 
 u16 dig_xyz1;/**<BMM150 trim xyz1 data*/
 };
-/*!
- *	@brief Used to read the akm compensated values
-*/
-struct bmi160_bst_akm_xyz_t {
-s32 x;/**<AKM09911 and AKM09912 X compensated data*/
-s32 y;/**<AKM09911 and AKM09912 Y compensated data*/
-s32 z;/**<AKM09911 and AKM09912 Z compensated data*/
-};
-/*!
-*	@brief Structure for reading AKM compensating data
-*/
-struct bst_akm_sensitivity_data_t {
-u8 asax;/**<AKM09911 and AKM09912 X sensitivity data*/
-u8 asay;/**<AKM09911 and AKM09912 Y sensitivity data*/
-u8 asaz;/**<AKM09911 and AKM09912 Z sensitivity data*/
-};
-/*!
-* @brief YAMAHA-YAS532 struct
-* Calibration YAS532 data struct
-*/
-struct bst_yas532_calib_data_t {
-s32 cx;/**<YAS532 calib cx data */
-s32 cy1;/**<YAS532 calib cy1 data */
-s32 cy2;/**<YAS532 calib cy2 data */
-s32 a2;/**<YAS532 calib a2 data */
-s32 a3;/**<YAS532 calib a3 data */
-s32 a4;/**<YAS532 calib a4 data */
-s32 a5;/**<YAS532 calib a5 data */
-s32 a6;/**<YAS532 calib a6 data */
-s32 a7;/**<YAS532 calib a7 data */
-s32 a8;/**<YAS532 calib a8 data */
-s32 a9;/**<YAS532 calib a9 data */
-s32 k;/**<YAS532 calib k data */
-s8 rxy1y2[3];/**<YAS532 calib rxy1y2 data */
-u8 fxy1y2[3];/**<YAS532 calib fxy1y2 data */
-};
-/*!
-* @brief YAS532 Temperature structure
-*/
-#if 1 < YAS532_MAG_TEMPERATURE_LOG
-struct yas_temp_filter_t {
-u16 log[YAS532_MAG_TEMPERATURE_LOG];/**<YAS532 temp log array */
-u8 num;/**< used for increment the index */
-u8 idx;/**< used for increment the index */
-};
-#endif
-/*!
-* @brief YAS532 sensor initialization
-*/
-struct yas532_t {
-struct bst_yas532_calib_data_t calib_yas532;/**< calib data */
-s8 measure_state;/**< update measure state */
-s8 v_hard_offset_s8[3];/**< offset write array*/
-s32 coef[3];/**< co efficient data */
-s8 overflow;/**< over flow condition check */
-u8 dev_id;/**< device id information */
-const s8 *transform;/**< transform condition check  */
-#if 1 < YAS532_MAG_TEMPERATURE_LOG
-struct yas_temp_filter_t temp_data;/**< temp data */
-#endif
-u16 last_raw[4];/**< raw data */
-};
-/*!
-* @brief Used for reading the YAS532 XYZ data
-*/
-struct yas532_vector {
-s32 yas532_vector_xyz[3];/**< YAS532 compensated xyz data*/
-};
-/*!
-* @brief Used for reading the YAS532 XYZ data
-*/
-struct yas532_data {
-s32 x;
-s32 y;
-s32 z;
-};
-/**
- * @struct yas_vector
- * @brief Stores the sensor data
- */
-struct yas_vector {
-	s32 yas537_vector_xyz[3]; /*!< vector data */
-};
-/*!
-* @brief YAMAHA-YAS532 struct
-* Calibration YAS532 data struct
-*/
-struct bst_yas537_calib_data_t {
-s8 a2;/**<YAS532 calib a2 data */
-s8 a3;/**<YAS532 calib a3 data */
-s8 a4;/**<YAS532 calib a4 data */
-s16 a5;/**<YAS532 calib a5 data */
-s8 a6;/**<YAS532 calib a6 data */
-s8 a7;/**<YAS532 calib a7 data */
-s8 a8;/**<YAS532 calib a8 data */
-s16 a9;/**<YAS532 calib a9 data */
-u8 k;/**<YAS532 calib k data */
-u8 ver;/**<YAS532 calib ver data*/
-};
-/*!
-* @brief YAS537 sensor initialization
-*/
-struct yas537_t {
-struct bst_yas537_calib_data_t calib_yas537;/**< calib data */
-s8 measure_state;/**< update measure state */
-s8 hard_offset[3];/**< offset write array*/
-u16 last_after_rcoil[3];/**< rcoil write array*/
-s32 coef[3];/**< co efficient data */
-s8 overflow;/**< over flow condition check */
-u8 dev_id;/**< device id information */
-u8 average;/**<average selection for offset configuration*/
-const s8 *transform;/**< transform condition check  */
-u16 last_raw[4];/**< raw data */
-struct yas_vector xyz; /*!< X, Y, Z measurement data of the sensor */
-};
+#ifdef FIFO_ENABLE
 /*!
 * @brief FIFO used to store the FIFO header less data
 */
@@ -1365,7 +1283,7 @@ u8 mag_r_y2_lsb;
 u8 mag_r_y2_msb;
 /**< The value of mag r for BMM150 Y2 for YAMAHA MSB data*/
 };
-
+#endif
 /**************************************************************/
 /**\name	USER DATA REGISTERS DEFINITION START    */
 /**************************************************************/
@@ -1413,10 +1331,10 @@ u8 mag_r_y2_msb;
 /**\name	MAG DATA READY LENGTH, POSITION AND MASK    */
 /**************************************************************/
 /* Error Description - Reg Addr --> (0x02), Bit --> 7 */
-#define BMI160_USER_MAG_DADA_RDY_ERR__POS               (7)
-#define BMI160_USER_MAG_DADA_RDY_ERR__LEN               (1)
-#define BMI160_USER_MAG_DADA_RDY_ERR__MSK               (0x80)
-#define BMI160_USER_MAG_DADA_RDY_ERR__REG               (BMI160_USER_ERROR_ADDR)
+#define BMI160_USER_MAG_DATA_RDY_ERR__POS               (7)
+#define BMI160_USER_MAG_DATA_RDY_ERR__LEN               (1)
+#define BMI160_USER_MAG_DATA_RDY_ERR__MSK               (0x80)
+#define BMI160_USER_MAG_DATA_RDY_ERR__REG               (BMI160_USER_ERROR_ADDR)
 /**************************************************************/
 /**\name	MAG POWER MODE LENGTH, POSITION AND MASK    */
 /**************************************************************/
@@ -1948,6 +1866,8 @@ u8 mag_r_y2_msb;
 #define BMI160_USER_TEMP_MSB_VALUE__MSK               (0xFF)
 #define BMI160_USER_TEMP_MSB_VALUE__REG               \
 		(BMI160_USER_TEMPERATURE_1_ADDR)
+
+#ifdef FIFO_ENABLE
 /**************************************************************/
 /**\name	FIFO BYTE COUNTER LENGTH, POSITION AND MASK*/
 /**************************************************************/
@@ -1973,7 +1893,7 @@ u8 mag_r_y2_msb;
 #define BMI160_USER_FIFO_DATA__LEN           (8)
 #define BMI160_USER_FIFO_DATA__MSK          (0xFF)
 #define BMI160_USER_FIFO_DATA__REG          (BMI160_USER_FIFO_DATA_ADDR)
-
+#endif
 /**************************************************************/
 /**\name	ACCEL CONFIGURATION LENGTH, POSITION AND MASK*/
 /**************************************************************/
@@ -2034,6 +1954,8 @@ u8 mag_r_y2_msb;
 #define BMI160_USER_MAG_CONFIG_OUTPUT_DATA_RATE__MSK               (0x0F)
 #define BMI160_USER_MAG_CONFIG_OUTPUT_DATA_RATE__REG               \
 (BMI160_USER_MAG_CONFIG_ADDR)
+
+#ifdef FIFO_ENABLE
 /**************************************************************/
 /**\name	FIFO DOWNS LENGTH, POSITION AND MASK*/
 /**************************************************************/
@@ -2128,7 +2050,7 @@ u8 mag_r_y2_msb;
 #define BMI160_USER_FIFO_GYRO_ENABLE__MSK               (0x80)
 #define BMI160_USER_FIFO_GYRO_ENABLE__REG		       \
 (BMI160_USER_FIFO_CONFIG_1_ADDR)
-
+#endif
 /**************************************************************/
 /**\name	MAG I2C ADDRESS SELECTION LENGTH, POSITION AND MASK*/
 /**************************************************************/
@@ -2278,6 +2200,8 @@ u8 mag_r_y2_msb;
 #define BMI160_USER_INTR_ENABLE_1_DATA_RDY_ENABLE__MSK               (0x10)
 #define BMI160_USER_INTR_ENABLE_1_DATA_RDY_ENABLE__REG	            \
 (BMI160_USER_INTR_ENABLE_1_ADDR)
+
+#ifdef FIFO_ENABLE
 /**************************************************************/
 /**\name	FIFO FULL AND WATER MARK ENABLE LENGTH, POSITION AND MASK*/
 /**************************************************************/
@@ -2294,6 +2218,7 @@ u8 mag_r_y2_msb;
 #define BMI160_USER_INTR_ENABLE_1_FIFO_WM_ENABLE__MSK               (0x40)
 #define BMI160_USER_INTR_ENABLE_1_FIFO_WM_ENABLE__REG	           \
 (BMI160_USER_INTR_ENABLE_1_ADDR)
+#endif
 /**************************************************************/
 /**\name	NO MOTION XYZ ENABLE LENGTH, POSITION AND MASK*/
 /**************************************************************/
@@ -2497,10 +2422,13 @@ u8 mag_r_y2_msb;
 #define BMI160_USER_INTR_MAP_1_INTR2_PMU_TRIG__LEN               (1)
 #define BMI160_USER_INTR_MAP_1_INTR2_PMU_TRIG__MSK               (0x01)
 #define BMI160_USER_INTR_MAP_1_INTR2_PMU_TRIG__REG (BMI160_USER_INTR_MAP_1_ADDR)
+
+#ifdef FIFO_ENABLE
 /**************************************************************/
 /**\name	INTERRUPT1 MAPPIONG OF FIFO FULL AND
 	WATER MARK LENGTH, POSITION AND MASK*/
 /**************************************************************/
+
 /* Int_Map_1 Description - Reg Addr --> 0x56, Bit -->1 */
 #define BMI160_USER_INTR_MAP_1_INTR2_FIFO_FULL__POS               (1)
 #define BMI160_USER_INTR_MAP_1_INTR2_FIFO_FULL__LEN               (1)
@@ -2514,6 +2442,7 @@ u8 mag_r_y2_msb;
 #define BMI160_USER_INTR_MAP_1_INTR2_FIFO_WM__MSK               (0x04)
 #define BMI160_USER_INTR_MAP_1_INTR2_FIFO_WM__REG	         \
 (BMI160_USER_INTR_MAP_1_ADDR)
+#endif
 /**************************************************************/
 /**\name	INTERRUPT1 MAPPIONG OF DATA READY LENGTH, POSITION AND MASK*/
 /**************************************************************/
@@ -3201,13 +3130,14 @@ u8 mag_r_y2_msb;
 
 /**************************************************************************/
 /* CMD REGISTERS DEFINITION END */
-
+#ifdef FIFO_ENABLE
 /**************************************************/
 /**\name	FIFO FRAME COUNT DEFINITION           */
 /*************************************************/
 #define FIFO_FRAME				(1024)
 #define FIFO_CONFIG_CHECK1		(0x00)
 #define FIFO_CONFIG_CHECK2		(0x80)
+#endif
 /**************************************************/
 /**\name	MAG SENSOR SELECT          */
 /*************************************************/
@@ -3510,6 +3440,8 @@ u8 mag_r_y2_msb;
 #define	SUSPEND_MODE	(1)
 #define	NORMAL_MODE		(2)
 #define MAG_SUSPEND_MODE (1)
+
+#ifdef FIFO_ENABLE
 /**************************************************/
 /**\name	FIFO CONFIGURATIONS    */
 /*************************************************/
@@ -3554,12 +3486,17 @@ u8 mag_r_y2_msb;
 #define	FIFO_M_OVER_LEN				((s8)-3)
 #define	FIFO_G_OVER_LEN				((s8)-2)
 #define	FIFO_A_OVER_LEN				((s8)-1)
+#endif
 /**************************************************/
 /**\name	ACCEL POWER MODE    */
 /*************************************************/
 #define ACCEL_MODE_NORMAL	(0x11)
 #define	ACCEL_LOWPOWER		(0X12)
 #define	ACCEL_SUSPEND		(0X10)
+/* BMI160 Accel power modes*/
+#define BMI160_ACCEL_SUSPEND        0
+#define BMI160_ACCEL_NORMAL_MODE    1
+#define BMI160_ACCEL_LOW_POWER      2
 /**************************************************/
 /**\name	GYRO POWER MODE    */
 /*************************************************/
@@ -3865,7 +3802,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_drop_cmd_err(u8
  *
  *
 */
-BMI160_RETURN_FUNCTION_TYPE bmi160_get_mag_dada_rdy_err(u8
+BMI160_RETURN_FUNCTION_TYPE bmi160_get_mag_data_rdy_err(u8
 *v_mag_data_rdy_err_u8);
 /*!
  *	@brief This API reads the error status
@@ -3956,7 +3893,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_gyro_power_mode_stat(u8
  * ------------------|----------
  *    SUSPEND        |   0x00
  *    NORMAL         |   0x01
- *  LOW POWER        |   0x03
+ *  LOW POWER        |   0x02
  *
  * @note The power mode of accel set by the 0x7E command register
  * @note using the function "bmi160_set_command_register()"
@@ -4321,6 +4258,28 @@ struct bmi160_accel_t *accel);
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_get_sensor_time(
 u32 *v_sensor_time_u32);
+/*!
+ *	@brief This API reads sensor_time ,Accel data ,Gyro data from the register
+ *	0x0C to 0x1A
+ *
+ *
+ *  @param accel_gyro_sensortime_select : The value of configuration
+ *  value    |   output
+ *  ---------|----------------
+ *   0       | Accel data and Sensor time
+ *   1       | Accel data ,Gyro data and Sensor time
+ *	@param accel_gyro_sensor_time : the value of accel gyro and sensor time data
+ *
+ *
+ *	@return results of bus communication function
+ *	@retval 0 -> Success
+ *	@retval -1 -> Error
+ *
+ *
+*/
+BMI160_RETURN_FUNCTION_TYPE bmi160_read_accel_gyro_sensor_time
+(u8 accel_gyro_sensortime_select,
+struct bmi160_sensortime_accel_gyro_data *accel_gyro_sensor_time);
 /**************************************************/
 /**\name	 FUNCTION FOR GYRO SLEF TEST  */
 /*************************************************/
@@ -4883,6 +4842,8 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_stat1_low_g_intr(u8
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_get_stat1_data_rdy_intr(u8
 *v_data_rdy_intr_u8);
+
+#ifdef FIFO_ENABLE
 /**************************************************/
 /**\name	 FUNCTIONS FOR FIFO FULL AND WATER MARK INTERRUPT STATUS*/
 /*************************************************/
@@ -4941,6 +4902,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_stat1_fifo_full_intr(u8
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_get_stat1_fifo_wm_intr(u8
 *v_fifo_wm_intr_u8);
+#endif
 /**************************************************/
 /**\name	 FUNCTIONS FOR NO MOTION INTERRUPT STATUS*/
 /*************************************************/
@@ -5343,6 +5305,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_stat3_flat(u8
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_get_temp(s16
 *v_temp_s16);
+#ifdef FIFO_ENABLE
 /**************************************************/
 /**\name	 FUNCTION FOR FIFO LENGTH AND FIFO DATA READ */
 /*************************************************/
@@ -5385,6 +5348,7 @@ u32 *v_fifo_length_u32);
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_fifo_data(
 u8 *v_fifodata_u8, u16 v_fifo_length_u16);
+#endif
 /**************************************************/
 /**\name	 FUNCTION FOR ACCEL CONFIGURATIONS */
 /*************************************************/
@@ -5841,7 +5805,7 @@ u8 v_range_u8);
  *
  *
  *
- *  @param  v_output_data_rat_u8e : The value of mag output data rate
+ *  @param  v_output_data_rate_u8 : The value of mag output data rate
  *  value   |    mag output data rate
  * ---------|---------------------------
  *  0x00    |BMI160_MAG_OUTPUT_DATA_RATE_RESERVED
@@ -5877,7 +5841,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_mag_output_data_rate(u8 *odr);
  *
  *
  *
- *  @param  v_output_data_rat_u8e : The value of mag output data rate
+ *  @param  v_output_data_rate_u8 : The value of mag output data rate
  *  value   |    mag output data rate
  * ---------|---------------------------
  *  0x00    |BMI160_MAG_OUTPUT_DATA_RATE_RESERVED
@@ -5906,6 +5870,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_mag_output_data_rate(u8 *odr);
  *
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_set_mag_output_data_rate(u8 odr);
+#ifdef FIFO_ENABLE
 /**************************************************/
 /**\name	 FUNCTION FOR FIFO CONFIGURATIONS */
 /*************************************************/
@@ -6029,7 +5994,7 @@ u8 v_fifo_down_u8);
  *
  *
  *
- *  @param v_accel_fifo_filter_u8 :The value of accel filter data
+ *  @param accel_fifo_filter_u8 :The value of accel filter data
  *  value      |  accel_fifo_filter_data
  * ------------|-------------------------
  *    0x00     |  Unfiltered data
@@ -6043,7 +6008,7 @@ u8 v_fifo_down_u8);
  *
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_get_accel_fifo_filter_data(
-u8 *v_accel_fifo_filter_u8);
+u8 *accel_fifo_filter_u8);
 /*!
  *	@brief This API is used to set accel fifo filter data
  *	from the register 0x45 bit 7
@@ -6379,6 +6344,7 @@ u8 *v_fifo_gyro_u8);
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_set_fifo_gyro_enable(
 u8 v_fifo_gyro_u8);
+#endif
 /***************************************************************/
 /**\name	FUNCTION FOR MAG I2C ADDRESS SELECTION          */
 /***************************************************************/
@@ -7095,9 +7061,9 @@ u8 v_channel_u8, u8 *v_intr_output_type_u8);
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_set_intr_output_type(
 u8 v_channel_u8, u8 v_intr_output_type_u8);
- /*!
+  /*!
  *	@brief API used to get the Output enable for interrupt1
- *	and interrupt1 pin from the register 0x53
+ *	and interrupt2 pin from the register 0x53
  *	@brief interrupt1 - bit 3
  *	@brief interrupt2 - bit 7
  *
@@ -7111,8 +7077,8 @@ u8 v_channel_u8, u8 v_intr_output_type_u8);
  *	The value of output enable of interrupt enable
  *	value    | Behaviour
  * ----------|-------------------
- *  0x01     |  BMI160_INPUT
- *  0x00     |  BMI160_OUTPUT
+ *  0x01     |  INTERRUPT OUTPUT ENABLED
+ *  0x00     |  INTERRUPT OUTPUT DISABLED
  *
  *
  *
@@ -7126,7 +7092,7 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_get_output_enable(
 u8 v_channel_u8, u8 *v_output_enable_u8);
  /*!
  *	@brief API used to set the Output enable for interrupt1
- *	and interrupt1 pin from the register 0x53
+ *	and interrupt2 pin from the register 0x53
  *	@brief interrupt1 - bit 3
  *	@brief interrupt2 - bit 7
  *
@@ -7140,8 +7106,8 @@ u8 v_channel_u8, u8 *v_output_enable_u8);
  *	The value of output enable of interrupt enable
  *	value    | Behaviour
  * ----------|-------------------
- *  0x01     |  BMI160_INPUT
- *  0x00     |  BMI160_OUTPUT
+ *  0x01     |  INTERRUPT OUTPUT ENABLED
+ *  0x00     |  INTERRUPT OUTPUT DISABLED
  *
  *
  *
@@ -7817,6 +7783,7 @@ u8 v_channel_u8, u8 *v_intr_pmu_trig_u8);
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_set_intr_pmu_trig(
 u8 v_channel_u8, u8 v_intr_pmu_trig_u8);
+
 /*!
  *	@brief Reads FIFO Full interrupt mapped to interrupt1
  *	and interrupt2 form the register 0x56 bit 5 and 1
@@ -7844,6 +7811,7 @@ u8 v_channel_u8, u8 v_intr_pmu_trig_u8);
  *
  *
 */
+#ifdef FIFO_ENABLE
 BMI160_RETURN_FUNCTION_TYPE bmi160_get_intr_fifo_full(
 u8 v_channel_u8, u8 *v_intr_fifo_full_u8);
 /*!
@@ -7935,6 +7903,7 @@ u8 v_channel_u8, u8 *v_intr_fifo_wm_u8);
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_set_intr_fifo_wm(
 u8 v_channel_u8, u8 v_intr_fifo_wm_u8);
+#endif
 /*!
  *	@brief Reads Data Ready interrupt mapped to interrupt1
  *	and interrupt2 form the register 0x56
@@ -8781,6 +8750,23 @@ u8 *int_sig_mot_sel);
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_set_intr_significant_motion_select(
 u8 int_sig_mot_sel);
+/*!
+ *	@brief This API used to unmap the  signification motion
+ *	interrupt
+ *
+ *
+ *  @param v_significant_u8   : The value of interrupt selection
+ *
+ *      BMI160_MAP_INTR1	0
+ *      BMI160_MAP_INTR2	1
+ *
+ *  @return results of communication routine
+ *
+ *
+*/
+BMI160_RETURN_FUNCTION_TYPE bmi160_unmap_significant_motion_intr(
+u8 v_significant_u8);
+
  /*!
  *	@brief This API is used to read
  *	the significant skip time from the register 0x62 bit  2 and 3
@@ -11237,125 +11223,237 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_bmm150_mag_set_power_mode(u8 mag_pow_mode);
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_set_bmm150_mag_and_secondary_if_power_mode(
 u8 v_mag_sec_if_pow_mode_u8);
+#if defined AKM09911 || defined AKM09912
 /***************************************************/
 /**\name	FUNCTIONS FOR AKM09911 AND AKM09912*/
 /***************************************************/
- /*!
- *	@brief This function used for initialize
- *	the AKM09911 and AKM09912 sensor
- *
- *
- *	@param v_akm_i2c_address_u8: The value of device address
- *	AKM sensor   |  Slave address
- * --------------|---------------------
- *  AKM09911     |  AKM09911_I2C_ADDR_1
- *     -         |  and AKM09911_I2C_ADDR_2
- *  AKM09912     |  AKM09912_I2C_ADDR_1
- *     -         |  AKM09912_I2C_ADDR_2
- *     -         |  AKM09912_I2C_ADDR_3
- *     -         |  AKM09912_I2C_ADDR_4
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
-*/
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm_mag_interface_init(
-u8 v_akm_i2c_address_u8);
- /*!
- *	@brief This function used for read the sensitivity data of
- *	AKM09911 and AKM09912
- *
- *	@note Before reading the mag sensitivity values
- *	make sure the following two points are addressed
- *	@note	1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note	2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
-*/
-BMI160_RETURN_FUNCTION_TYPE bmi160_read_bst_akm_sensitivity_data(void);
-/*!
- *	@brief This API used to get the compensated X data
- *	of AKM09911 the out put of X as s32
- *	@note	Before start reading the mag compensated X data
- *			make sure the following two points are addressed
- *	@note 1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note 2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
- *
- *
- *  @param v_bst_akm_x_s16 : The value of X data
- *
- *	@return results of compensated X data value output as s32
- *
- */
-s32 bmi160_bst_akm09911_compensate_X(s16 v_bst_akm_x_s16);
-/*!
- *	@brief This API used to get the compensated Y data
- *	of AKM09911 the out put of Y as s32
- *	@note	Before start reading the mag compensated Y data
- *			make sure the following two points are addressed
- *	@note 1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note 2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
- *
- *
- *  @param v_bst_akm_y_s16 : The value of Y data
- *
- *	@return results of compensated Y data value output as s32
- *
- */
-s32 bmi160_bst_akm09911_compensate_Y(s16 v_bst_akm_y_s16);
-/*!
- *	@brief This API used to get the compensated Z data
- *	of AKM09911 the out put of Z as s32
- *	@note	Before start reading the mag compensated Z data
- *			make sure the following two points are addressed
- *	@note 1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note 2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
- *
- *
- *  @param v_bst_akm_z_s16 : The value of Z data
- *
- *	@return results of compensated Z data value output as s32
- *
- */
-s32 bmi160_bst_akm09911_compensate_Z(s16 v_bst_akm_z_s16);
+
+		/*!
+	 *	@brief Used to read the akm compensated values
+	*/
+	struct bmi160_bst_akm_xyz_t {
+	s32 x;/**<AKM09911 and AKM09912 X compensated data*/
+	s32 y;/**<AKM09911 and AKM09912 Y compensated data*/
+	s32 z;/**<AKM09911 and AKM09912 Z compensated data*/
+	};
+	/*!
+	*	@brief Structure for reading AKM compensating data
+	*/
+	struct bst_akm_sensitivity_data_t {
+	u8 asax;/**<AKM09911 and AKM09912 X sensitivity data*/
+	u8 asay;/**<AKM09911 and AKM09912 Y sensitivity data*/
+	u8 asaz;/**<AKM09911 and AKM09912 Z sensitivity data*/
+	};
+	 /*!
+	 *	@brief This function used for initialize
+	 *	the AKM09911 and AKM09912 sensor
+	 *
+	 *
+	 *	@param v_akm_i2c_address_u8: The value of device address
+	 *	AKM sensor   |  Slave address
+	 * --------------|---------------------
+	 *  AKM09911     |  AKM09911_I2C_ADDR_1
+	 *     -         |  and AKM09911_I2C_ADDR_2
+	 *  AKM09912     |  AKM09912_I2C_ADDR_1
+	 *     -         |  AKM09912_I2C_ADDR_2
+	 *     -         |  AKM09912_I2C_ADDR_3
+	 *     -         |  AKM09912_I2C_ADDR_4
+	 *
+	 *	@return results of bus communication function
+	 *	@retval 0 -> Success
+	 *	@retval -1 -> Error
+	 *
+	 *
+	*/
+	BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm_mag_interface_init(
+	u8 v_akm_i2c_address_u8);
+	 /*!
+	 *	@brief This function used for read the sensitivity data of
+	 *	AKM09911 and AKM09912
+	 *
+	 *	@note Before reading the mag sensitivity values
+	 *	make sure the following two points are addressed
+	 *	@note	1.	Make sure the mag interface is enabled or not,
+	 *		by using the bmi160_get_if_mode() function.
+	 *		If mag interface is not enabled set the value of 0x02
+	 *		to the function bmi160_get_if_mode(0x02)
+	 *	@note	2.	And also confirm the secondary-interface power mode
+	 *		is not in the SUSPEND mode.
+	 *		by using the function bmi160_get_mag_pmu_status().
+	 *		If the secondary-interface power mode is in SUSPEND mode
+	 *		set the value of 0x19(NORMAL mode)by using the
+	 *		bmi160_set_command_register(0x19) function.
+	 *
+	 *	@return results of bus communication function
+	 *	@retval 0 -> Success
+	 *	@retval -1 -> Error
+	 *
+	 *
+	*/
+	BMI160_RETURN_FUNCTION_TYPE bmi160_read_bst_akm_sensitivity_data(void);
+	/*!
+	 *	@brief This function used for set the AKM09911 and AKM09912
+	 *	power mode.
+	 *	@note Before set the AKM power mode
+	 *	make sure the following two points are addressed
+	 *	@note	1.	Make sure the mag interface is enabled or not,
+	 *		by using the bmi160_get_if_mode() function.
+	 *		If mag interface is not enabled set the value of 0x02
+	 *		to the function bmi160_get_if_mode(0x02)
+	 *	@note	2.	And also confirm the secondary-interface power mode
+	 *		is not in the SUSPEND mode.
+	 *		by using the function bmi160_get_mag_pmu_status().
+	 *		If the secondary-interface power mode is in SUSPEND mode
+	 *		set the value of 0x19(NORMAL mode)by using the
+	 *		bmi160_set_command_register(0x19) function.
+	 *
+	 *	@param v_akm_pow_mode_u8 : The value of akm power mode
+	 *  value   |    Description
+	 * ---------|--------------------
+	 *    0     |  AKM_POWER_DOWN_MODE
+	 *    1     |  AKM_SINGLE_MEAS_MODE
+	 *    2     |  FUSE_ROM_MODE
+	 *
+	 *
+	 *	@return results of bus communication function
+	 *	@retval 0 -> Success
+	 *	@retval -1 -> Error
+	 *
+	 *
+	*/
+	BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm_set_powermode(
+		u8 v_akm_pow_mode_u8);
+	 /*!
+	 *	@brief This function used for set the magnetometer
+	 *	power mode of AKM09911 and AKM09912
+	 *	@note Before set the mag power mode
+	 *	make sure the following two point is addressed
+	 *		Make sure the mag interface is enabled or not,
+	 *		by using the bmi160_get_if_mode() function.
+	 *		If mag interface is not enabled set the value of 0x02
+	 *		to the function bmi160_get_if_mode(0x02)
+	 *
+	 *	@param v_mag_sec_if_pow_mode_u8 : The value of secondary if power mode
+	 *  value   |    Description
+	 * ---------|--------------------
+	 *    0     |  BMI160_MAG_FORCE_MODE
+	 *    1     |  BMI160_MAG_SUSPEND_MODE
+	 *
+	 *
+	 *	@return results of bus communication function
+	 *	@retval 0 -> Success
+	 *	@retval -1 -> Error
+	 *
+	 *
+	*/
+	BMI160_RETURN_FUNCTION_TYPE
+	bmi160_set_bst_akm_and_secondary_if_powermode(
+		u8 v_mag_sec_if_pow_mode_u8);
+
+	#endif
+	#ifdef AKM09911
+	/***************************************************/
+	/**\name	FUNCTIONS FOR AKM09911 */
+	/***************************************************/
+	/*!
+	 *	@brief This API used to get the compensated X data
+	 *	of AKM09911 the out put of X as s32
+	 *	@note	Before start reading the mag compensated X data
+	 *			make sure the following two points are addressed
+	 *	@note 1.	Make sure the mag interface is enabled or not,
+	 *		by using the bmi160_get_if_mode() function.
+	 *		If mag interface is not enabled set the value of 0x02
+	 *		to the function bmi160_get_if_mode(0x02)
+	 *	@note 2.	And also confirm the secondary-interface power mode
+	 *		is not in the SUSPEND mode.
+	 *		by using the function bmi160_get_mag_pmu_status().
+	 *		If the secondary-interface power mode is in SUSPEND mode
+	 *		set the value of 0x19(NORMAL mode)by using the
+	 *		bmi160_set_command_register(0x19) function.
+	 *
+	 *
+	 *  @param v_bst_akm_x_s16 : The value of X data
+	 *
+	 *	@return results of compensated X data value output as s32
+	 *
+	 */
+	s32 bmi160_bst_akm09911_compensate_X(s16 v_bst_akm_x_s16);
+	/*!
+	 *	@brief This API used to get the compensated Y data
+	 *	of AKM09911 the out put of Y as s32
+	 *	@note	Before start reading the mag compensated Y data
+	 *			make sure the following two points are addressed
+	 *	@note 1.	Make sure the mag interface is enabled or not,
+	 *		by using the bmi160_get_if_mode() function.
+	 *		If mag interface is not enabled set the value of 0x02
+	 *		to the function bmi160_get_if_mode(0x02)
+	 *	@note 2.	And also confirm the secondary-interface power mode
+	 *		is not in the SUSPEND mode.
+	 *		by using the function bmi160_get_mag_pmu_status().
+	 *		If the secondary-interface power mode is in SUSPEND mode
+	 *		set the value of 0x19(NORMAL mode)by using the
+	 *		bmi160_set_command_register(0x19) function.
+	 *
+	 *
+	 *  @param v_bst_akm_y_s16 : The value of Y data
+	 *
+	 *	@return results of compensated Y data value output as s32
+	 *
+	 */
+	s32 bmi160_bst_akm09911_compensate_Y(s16 v_bst_akm_y_s16);
+	/*!
+	 *	@brief This API used to get the compensated Z data
+	 *	of AKM09911 the out put of Z as s32
+	 *	@note	Before start reading the mag compensated Z data
+	 *			make sure the following two points are addressed
+	 *	@note 1.	Make sure the mag interface is enabled or not,
+	 *		by using the bmi160_get_if_mode() function.
+	 *		If mag interface is not enabled set the value of 0x02
+	 *		to the function bmi160_get_if_mode(0x02)
+	 *	@note 2.	And also confirm the secondary-interface power mode
+	 *		is not in the SUSPEND mode.
+	 *		by using the function bmi160_get_mag_pmu_status().
+	 *		If the secondary-interface power mode is in SUSPEND mode
+	 *		set the value of 0x19(NORMAL mode)by using the
+	 *		bmi160_set_command_register(0x19) function.
+	 *
+	 *
+	 *  @param v_bst_akm_z_s16 : The value of Z data
+	 *
+	 *	@return results of compensated Z data value output as s32
+	 *
+	 */
+	s32 bmi160_bst_akm09911_compensate_Z(s16 v_bst_akm_z_s16);
+	 /*!
+	 *	@brief This function used for read the compensated value of
+	 *	AKM09911
+	 *	@note Before start reading the mag compensated data's
+	 *	make sure the following two points are addressed
+	 *	@note	1.	Make sure the mag interface is enabled or not,
+	 *		by using the bmi160_get_if_mode() function.
+	 *		If mag interface is not enabled set the value of 0x02
+	 *		to the function bmi160_get_if_mode(0x02)
+	 *	@note	2.	And also confirm the secondary-interface power mode
+	 *		is not in the SUSPEND mode.
+	 *		by using the function bmi160_get_mag_pmu_status().
+	 *		If the secondary-interface power mode is in SUSPEND mode
+	 *		set the value of 0x19(NORMAL mode)by using the
+	 *		bmi160_set_command_register(0x19) function.
+
+	 *
+	 *	@return results of bus communication function
+	 *	@retval 0 -> Success
+	 *	@retval -1 -> Error
+	 *
+	 *
+	*/
+	BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm09911_compensate_xyz(
+	struct bmi160_bst_akm_xyz_t *bst_akm_xyz);
+#endif
+ #ifdef AKM09912
+ /***************************************************/
+/**\name	FUNCTIONS FOR AKM09912*/
+/***************************************************/
 /*!
  *	@brief This API used to get the compensated X data
  *	of AKM09912 the out put of X as s32
@@ -11378,6 +11476,7 @@ s32 bmi160_bst_akm09911_compensate_Z(s16 v_bst_akm_z_s16);
  *	@return results of compensated X data value output as s32
  *
  */
+
 s32 bmi160_bst_akm09912_compensate_X(s16 v_bst_akm_x_s16);
 /*!
  *	@brief This API used to get the compensated Y data
@@ -11427,31 +11526,6 @@ s32 bmi160_bst_akm09912_compensate_Y(s16 v_bst_akm_y_s16);
 s32 bmi160_bst_akm09912_compensate_Z(s16 v_bst_akm_z_s16);
  /*!
  *	@brief This function used for read the compensated value of
- *	AKM09911
- *	@note Before start reading the mag compensated data's
- *	make sure the following two points are addressed
- *	@note	1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note	2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
-
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
-*/
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm09911_compensate_xyz(
-struct bmi160_bst_akm_xyz_t *bst_akm_xyz);
- /*!
- *	@brief This function used for read the compensated value of
  *	AKM09912
  *	@note Before start reading the mag compensated data's
  *	make sure the following two points are addressed
@@ -11475,28 +11549,241 @@ struct bmi160_bst_akm_xyz_t *bst_akm_xyz);
 */
 BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm09912_compensate_xyz(
 struct bmi160_bst_akm_xyz_t *bst_akm_xyz);
+ #endif
+
+#ifdef FIFO_ENABLE
+/***************************************************/
+/**\name	FUNCTIONS FOR FIFO DATA READ */
+/***************************************************/
 /*!
- *	@brief This function used for set the AKM09911 and AKM09912
- *	power mode.
- *	@note Before set the AKM power mode
- *	make sure the following two points are addressed
- *	@note	1.	Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
- *	@note	2.	And also confirm the secondary-interface power mode
- *		is not in the SUSPEND mode.
- *		by using the function bmi160_get_mag_pmu_status().
- *		If the secondary-interface power mode is in SUSPEND mode
- *		set the value of 0x19(NORMAL mode)by using the
- *		bmi160_set_command_register(0x19) function.
+ *	@brief This function used for reading the
+ *	fifo data of  header less mode
  *
- *	@param v_akm_pow_mode_u8 : The value of akm power mode
- *  value   |    Description
- * ---------|--------------------
- *    0     |  AKM_POWER_DOWN_MODE
- *    1     |  AKM_SINGLE_MEAS_MODE
- *    2     |  FUSE_ROM_MODE
+ *
+ *
+ *	@note Configure the below functions for FIFO header less mode
+ *	@note 1. bmi160_set_fifo_down_gyro
+ *	@note 2. bmi160_set_gyro_fifo_filter_data
+ *	@note 3. bmi160_set_fifo_down_accel
+ *	@note 4. bmi160_set_accel_fifo_filter_dat
+ *	@note 5. bmi160_set_fifo_mag_enable
+ *	@note 6. bmi160_set_fifo_accel_enable
+ *	@note 7. bmi160_set_fifo_gyro_enable
+ *	@note For interrupt configuration
+ *	@note 1. bmi160_set_intr_fifo_full
+ *	@note 2. bmi160_set_intr_fifo_wm
+ *	@note 3. bmi160_set_fifo_tag_intr2_enable
+ *	@note 4. bmi160_set_fifo_tag_intr1_enable
+ *
+ *	@note The fifo reads the whole 1024 bytes
+ *	and processing the data
+ *
+ *	@return results of bus communication function
+ *	@retval 0 -> Success
+ *	@retval -1 -> Error
+ *
+ *
+ */
+BMI160_RETURN_FUNCTION_TYPE bmi160_read_fifo_headerless_mode(
+u8 v_mag_if_u8, struct bmi160_fifo_data_header_less_t *headerless_data);
+/*!
+ *	@brief This function used for reading the
+ *	fifo data of  header less mode for using user defined length
+ *
+ *
+ *	@param v_fifo_user_length_u16: The value of length of fifo read data
+ *	@param v_mag_if_mag_u8 : the mag interface data
+ *	@param fifo_data : the pointer to fifo_data_header_less_t structure
+ *
+ *	@note Configure the below functions for FIFO header less mode
+ *	@note 1. bmi160_set_fifo_down_gyro
+ *	@note 2. bmi160_set_gyro_fifo_filter_data
+ *	@note 3. bmi160_set_fifo_down_accel
+ *	@note 4. bmi160_set_accel_fifo_filter_dat
+ *	@note 5. bmi160_set_fifo_mag_enable
+ *	@note 6. bmi160_set_fifo_accel_enable
+ *	@note 7. bmi160_set_fifo_gyro_enable
+ *	@note For interrupt configuration
+ *	@note 1. bmi160_set_intr_fifo_full
+ *	@note 2. bmi160_set_intr_fifo_wm
+ *	@note 3. bmi160_set_fifo_tag_intr2_enable
+ *	@note 4. bmi160_set_fifo_tag_intr1_enable
+ *
+ *	@note The fifo reads the whole 1024 bytes
+ *	and processing the data
+ *
+ *	@return results of bus communication function
+ *	@retval 0 -> Success
+ *	@retval -1 -> Error
+ *
+ *
+ */
+BMI160_RETURN_FUNCTION_TYPE
+bmi160_read_fifo_headerless_mode_user_defined_length(
+u16 v_fifo_user_length_u16,
+struct bmi160_fifo_data_header_less_t *fifo_data, u8 v_mag_if_mag_u8);
+/*!
+ *	@brief This function used for reading the
+ *	fifo data of  header mode
+ *
+ *
+ *	@note Configure the below functions for FIFO header mode
+ *	@note 1. bmi160_set_fifo_down_gyro()
+ *	@note 2. bmi160_set_gyro_fifo_filter_data()
+ *	@note 3. bmi160_set_fifo_down_accel()
+ *	@note 4. bmi160_set_accel_fifo_filter_dat()
+ *	@note 5. bmi160_set_fifo_mag_enable()
+ *	@note 6. bmi160_set_fifo_accel_enable()
+ *	@note 7. bmi160_set_fifo_gyro_enable()
+ *	@note 8. bmi160_set_fifo_header_enable()
+ *	@note For interrupt configuration
+ *	@note 1. bmi160_set_intr_fifo_full()
+ *	@note 2. bmi160_set_intr_fifo_wm()
+ *	@note 3. bmi160_set_fifo_tag_intr2_enable()
+ *	@note 4. bmi160_set_fifo_tag_intr1_enable()
+ *
+ *	@note The fifo reads the whole 1024 bytes
+ *	and processing the data
+ *
+ *	@return results of bus communication function
+ *	@retval 0 -> Success
+ *	@retval -1 -> Error
+ *
+ *
+ */
+BMI160_RETURN_FUNCTION_TYPE bmi160_read_fifo_header_data(
+u8 v_mag_if_u8, struct bmi160_fifo_data_header_t *header_data);
+/*!
+ *	@brief This function used for reading the
+ *	fifo data of  header mode for using user defined length
+ *
+ *
+ *	@note Configure the below functions for FIFO header mode
+ *	@note 1. bmi160_set_fifo_down_gyro()
+ *	@note 2. bmi160_set_gyro_fifo_filter_data()
+ *	@note 3. bmi160_set_fifo_down_accel()
+ *	@note 4. bmi160_set_accel_fifo_filter_dat()
+ *	@note 5. bmi160_set_fifo_mag_enable()
+ *	@note 6. bmi160_set_fifo_accel_enable()
+ *	@note 7. bmi160_set_fifo_gyro_enable()
+ *	@note 8. bmi160_set_fifo_header_enable()
+ *	@note For interrupt configuration
+ *	@note 1. bmi160_set_intr_fifo_full()
+ *	@note 2. bmi160_set_intr_fifo_wm()
+ *	@note 3. bmi160_set_fifo_tag_intr2_enable()
+ *	@note 4. bmi160_set_fifo_tag_intr1_enable()
+ *
+ *	@note The fifo reads the whole 1024 bytes
+ *	and processing the data
+ *
+ *	@return results of bus communication function
+ *	@retval 0 -> Success
+ *	@retval -1 -> Error
+ *
+ *
+ */
+BMI160_RETURN_FUNCTION_TYPE bmi160_read_fifo_header_data_user_defined_length(
+u16 v_fifo_user_length_u16, u8 v_mag_if_mag_u8,
+struct bmi160_fifo_data_header_t *fifo_header_data);
+#endif
+/*!
+ *	@brief This function used for reading
+ *	bmi160_t structure
+ *
+ *  @return the reference and values of bmi160_t
+ *
+ *
+*/
+struct bmi160_t *bmi160_get_ptr(void);
+/*!
+ *	@brief This function used for reading the compensated data of
+ *	mag secondary interface xyz data
+ *	@note v_mag_x_s16: The value of mag x data
+ *	@note v_mag_y_s16: The value of mag y data
+ *	@note v_mag_z_s16: The value of mag z data
+ *	@note v_mag_r_s16: The value of mag r data
+ *	@param v_mag_second_if_u8: The value of mag selection
+ *
+ *  value   |   v_mag_second_if_u8
+ * ---------|----------------------
+ *    0     |    BMM150
+ *    1     |    AKM09911
+ *    2     |    AKM09912
+ *    3     |    YAS532
+ *    4     |    YAS537
+ *	@param mag_fifo_data: The value of compensated mag xyz data
+ *
+ *
+ *  @return
+ *
+ *
+*/
+BMI160_RETURN_FUNCTION_TYPE bmi160_second_if_mag_compensate_xyz(
+struct bmi160_mag_fifo_data_t mag_fifo_data,
+u8 v_mag_second_if_u8);
+#ifdef YAS537
+/***************************************************/
+/**\name	FUNCTIONS FOR YAMAH-YAS537 */
+/***************************************************/
+/**
+ * @struct yas_vector
+ * @brief Stores the sensor data
+ */
+struct yas_vector {
+	s32 yas537_vector_xyz[3]; /*!< vector data */
+};
+/*!
+* @brief YAMAHA-YAS532 struct
+* Calibration YAS532 data struct
+*/
+struct bst_yas537_calib_data_t {
+s8 a2;/**<YAS532 calib a2 data */
+s8 a3;/**<YAS532 calib a3 data */
+s8 a4;/**<YAS532 calib a4 data */
+s16 a5;/**<YAS532 calib a5 data */
+s8 a6;/**<YAS532 calib a6 data */
+s8 a7;/**<YAS532 calib a7 data */
+s8 a8;/**<YAS532 calib a8 data */
+s16 a9;/**<YAS532 calib a9 data */
+u8 k;/**<YAS532 calib k data */
+u8 ver;/**<YAS532 calib ver data*/
+};
+/*!
+* @brief YAS537 sensor initialization
+*/
+struct yas537_t {
+struct bst_yas537_calib_data_t calib_yas537;/**< calib data */
+s8 measure_state;/**< update measure state */
+s8 hard_offset[3];/**< offset write array*/
+u16 last_after_rcoil[3];/**< rcoil write array*/
+s32 coef[3];/**< co efficient data */
+s8 overflow;/**< over flow condition check */
+u8 dev_id;/**< device id information */
+u8 average;/**<average selection for offset configuration*/
+const s8 *transform;/**< transform condition check  */
+u16 last_raw[4];/**< raw data */
+struct yas_vector xyz; /*!< X, Y, Z measurement data of the sensor */
+};
+/*!
+ *	@brief This function used for read the
+ *	YAMAHA YAS537 xy1y2 data of fifo
+ *
+ *	@param a_xy1y2_u16: The value of xyy1 data
+ *	@param v_over_flow_u8: The value of overflow
+ *	@param v_rcoil_u8: The value of rcoil
+ *	@param v_busy_u8: The value of busy flag
+ *
+ *
+ *	@return results of bus communication function
+ *	@retval 0 -> Success
+ *	@retval -1 -> Error
+ *
+ *
+ */
+BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yamaha_yas537_fifo_xyz_data(
+u16 *a_xy1y2_u16, u8 v_over_flow_u8, u8 v_rcoil_u8, u8 v_busy_u8);
+/*!
+ *	@brief This function used to init the YAMAH-YAS537
  *
  *
  *	@return results of bus communication function
@@ -11505,22 +11792,14 @@ struct bmi160_bst_akm_xyz_t *bst_akm_xyz);
  *
  *
 */
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm_set_powermode(u8 v_akm_pow_mode_u8);
- /*!
- *	@brief This function used for set the magnetometer
- *	power mode of AKM09911 and AKM09912
- *	@note Before set the mag power mode
- *	make sure the following two point is addressed
- *		Make sure the mag interface is enabled or not,
- *		by using the bmi160_get_if_mode() function.
- *		If mag interface is not enabled set the value of 0x02
- *		to the function bmi160_get_if_mode(0x02)
+BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yamaha_yas537_mag_interface_init(
+void);
+/*!
+ *	@brief This function used for read the
+ *	YAMAHA YAS537 calibration data
  *
- *	@param v_mag_sec_if_pow_mode_u8 : The value of secondary if power mode
- *  value   |    Description
- * ---------|--------------------
- *    0     |  BMI160_MAG_FORCE_MODE
- *    1     |  BMI160_MAG_SUSPEND_MODE
+ *
+ *	@param v_rcoil_u8 : The value of r coil
  *
  *
  *	@return results of bus communication function
@@ -11528,12 +11807,145 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_bst_akm_set_powermode(u8 v_akm_pow_mode_u8);
  *	@retval -1 -> Error
  *
  *
-*/
-BMI160_RETURN_FUNCTION_TYPE bmi160_set_bst_akm_and_secondary_if_powermode(
-u8 v_mag_sec_if_pow_mode_u8);
+ */
+BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yamaha_yas537_calib_values(
+u8 v_rcoil_u8);
+/*!
+ *	@brief This function used for YAS537 write data acquisition
+ *	command register write
+ *	@param	v_command_reg_data_u8	:	the value of data acquisition
+ *	acquisition_command  |   operation
+ *  ---------------------|-------------------------
+ *         0x17          | turn on the acquisition coil
+ *         -             | set direction of the coil
+ *         _             | (x and y as minus(-))
+ *         _             | Deferred acquisition mode
+ *        0x07           | turn on the acquisition coil
+ *         _             | set direction of the coil
+ *         _             | (x and y as minus(-))
+ *         _             | Normal acquisition mode
+ *        0x11           | turn OFF the acquisition coil
+ *         _             | set direction of the coil
+ *         _             | (x and y as plus(+))
+ *         _             | Deferred acquisition mode
+ *       0x01            | turn OFF the acquisition coil
+ *        _              | set direction of the coil
+ *        _              | (x and y as plus(+))
+ *        _              | Normal acquisition mode
+ *
+ *
+ *
+  *	@return results of bus communication function
+ *	@retval 0 -> Success
+ *	@retval -1 -> Error
+ *
+ *
+ */
+BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yas537_acquisition_command_register(
+u8 v_command_reg_data_u8);
+/*!
+ *	@brief This function used for read the
+ *	YAMAHA YAS537 xy1y2 data
+ *
+ *	@param v_coil_stat_u8: The value of R coil status
+ *	@param v_busy_u8: The value of busy status
+ *	@param v_temperature_u16: The value of temperature
+ *	@param xy1y2: The value of raw xy1y2 data
+ *	@param v_ouflow_u8: The value of overflow
+ *
+ *
+ *	@return results of bus communication function
+ *	@retval 0 -> Success
+ *	@retval -1 -> Error
+ *
+ *
+ */
+BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yamaha_yas537_read_xy1y2_data(
+u8 *v_coil_stat_u8, u8 *v_busy_u8,
+u16 *v_temperature_u16, u16 *xy1y2, u8 *v_ouflow_u8);
+/*!
+ *	@brief This function used for read the
+ *	YAMAHA YAS537 xy1y2 data
+ *
+ *	@param v_ouflow_u8: The value of overflow
+ *	@param *vector_xyz : yas vector structure pointer
+ *
+ *	@return results of bus communication function
+ *	@retval 0 -> Success
+ *	@retval -1 -> Error
+ *
+ *
+ */
+BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yamaha_yas537_measure_xyz_data(
+u8 *v_ouflow_u8, struct yas_vector *vector_xyz);
+
+#endif
+
+#ifdef YAS532
 /***************************************************/
 /**\name	FUNCTIONS FOR YAMAH-YAS532 */
 /***************************************************/
+/*!
+* @brief YAMAHA-YAS532 struct
+* Calibration YAS532 data struct
+*/
+struct bst_yas532_calib_data_t {
+s32 cx;/**<YAS532 calib cx data */
+s32 cy1;/**<YAS532 calib cy1 data */
+s32 cy2;/**<YAS532 calib cy2 data */
+s32 a2;/**<YAS532 calib a2 data */
+s32 a3;/**<YAS532 calib a3 data */
+s32 a4;/**<YAS532 calib a4 data */
+s32 a5;/**<YAS532 calib a5 data */
+s32 a6;/**<YAS532 calib a6 data */
+s32 a7;/**<YAS532 calib a7 data */
+s32 a8;/**<YAS532 calib a8 data */
+s32 a9;/**<YAS532 calib a9 data */
+s32 k;/**<YAS532 calib k data */
+s8 rxy1y2[3];/**<YAS532 calib rxy1y2 data */
+u8 fxy1y2[3];/**<YAS532 calib fxy1y2 data */
+};
+/*!
+* @brief YAS532 Temperature structure
+*/
+#if 1 < YAS532_MAG_TEMPERATURE_LOG
+struct yas_temp_filter_t {
+u16 log[YAS532_MAG_TEMPERATURE_LOG];/**<YAS532 temp log array */
+u8 num;/**< used for increment the index */
+u8 idx;/**< used for increment the index */
+};
+#endif
+/*!
+* @brief YAS532 sensor initialization
+*/
+struct yas532_t {
+struct bst_yas532_calib_data_t calib_yas532;/**< calib data */
+s8 measure_state;/**< update measure state */
+s8 v_hard_offset_s8[3];/**< offset write array*/
+s32 coef[3];/**< co efficient data */
+s8 overflow;/**< over flow condition check */
+u8 dev_id;/**< device id information */
+const s8 *transform;/**< transform condition check  */
+#if 1 < YAS532_MAG_TEMPERATURE_LOG
+struct yas_temp_filter_t temp_data;/**< temp data */
+#endif
+u16 last_raw[4];/**< raw data */
+};
+/*!
+* @brief Used for reading the YAS532 XYZ data
+*/
+struct yas532_vector {
+s32 yas532_vector_xyz[3];/**< YAS532 compensated xyz data*/
+};
+/*!
+* @struct yas532_data
+* @brief Used for reading the YAS532 XYZ data
+*/
+struct yas532_data {
+s32 x;
+s32 y;
+s32 z;
+};
 /*!
  *	@brief This function used for read the YAMAH-YAS532 init
  *
@@ -11678,14 +12090,17 @@ u8 v_acquisition_command_u8);
  *         -             | set direction of the coil
  *         _             | (x and y as minus(-))
  *         _             | Deferred acquisition mode
+ *
  *        0x07           | turn on the acquisition coil
  *         _             | set direction of the coil
  *         _             | (x and y as minus(-))
  *         _             | Normal acquisition mode
+ *
  *        0x11           | turn OFF the acquisition coil
  *         _             | set direction of the coil
  *         _             | (x and y as plus(+))
  *         _             | Deferred acquisition mode
+ *
  *       0x01            | turn OFF the acquisition coil
  *        _              | set direction of the coil
  *        _              | (x and y as plus(+))
@@ -11693,7 +12108,7 @@ u8 v_acquisition_command_u8);
  *
  *
  *
-  *	@return results of bus communication function
+ *	@return results of bus communication function
  *	@retval 0 -> Success
  *	@retval -1 -> Error
  *
@@ -11704,7 +12119,7 @@ u8 v_command_reg_data_u8);
 /*!
  *	@brief This function used write offset of YAS532
  *
- *	@param	p_offset_s8	: The value of offset to write
+ *	@param p_offset_s8	: The value of offset to write
  *
  *
   *	@return results of bus communication function
@@ -11716,323 +12131,16 @@ u8 v_command_reg_data_u8);
 BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yas532_set_offset(
 const s8 *p_offset_s8);
 /*!
- *	@brief This function used to init the YAMAH-YAS537
- *
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
-*/
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yamaha_yas537_mag_interface_init(
-void);
-/*!
- *	@brief This function used for read the
- *	YAMAHA YAS537 calibration data
- *
- *
- *	@param v_rcoil_u8 : The value of r coil
- *
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
- */
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yamaha_yas537_calib_values(
-u8 v_rcoil_u8);
-/*!
- *	@brief This function used for YAS537 write data acquisition
- *	command register write
- *	@param	v_command_reg_data_u8	:	the value of data acquisition
- *	acquisition_command  |   operation
- *  ---------------------|-------------------------
- *         0x17          | turn on the acquisition coil
- *         -             | set direction of the coil
- *         _             | (x and y as minus(-))
- *         _             | Deferred acquisition mode
- *        0x07           | turn on the acquisition coil
- *         _             | set direction of the coil
- *         _             | (x and y as minus(-))
- *         _             | Normal acquisition mode
- *        0x11           | turn OFF the acquisition coil
- *         _             | set direction of the coil
- *         _             | (x and y as plus(+))
- *         _             | Deferred acquisition mode
- *       0x01            | turn OFF the acquisition coil
- *        _              | set direction of the coil
- *        _              | (x and y as plus(+))
- *        _              | Normal acquisition mode
- *
- *
- *
-  *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
- */
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yas537_acquisition_command_register(
-u8 v_command_reg_data_u8);
-/*!
- *	@brief This function used for read the
- *	YAMAHA YAS537 xy1y2 data
- *
- *	@param xy1y2: The value of raw xy1y2 data
- *	@param xyz: The value of  xyz data
- *
- *
- *	@return None
- *
- *
- */
-static void xy1y2_to_xyz(u16 *xy1y2, s32 *xyz);
-/*!
- *	@brief This function used for read the
- *	YAMAHA YAS537 xy1y2 data
- *
- *	@param v_coil_stat_u8: The value of R coil status
- *	@param v_busy_u8: The value of busy status
- *	@param v_temperature_u16: The value of temperature
- *	@param xy1y2: The value of raw xy1y2 data
- *	@param v_ouflow_u8: The value of overflow
- *
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
- */
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yamaha_yas537_read_xy1y2_data(
-u8 *v_coil_stat_u8, u8 *v_busy_u8,
-u16 *v_temperature_u16, u16 *xy1y2, u8 *v_ouflow_u8);
-/*!
- *	@brief This function used for read the
- *	YAMAHA YAS537 xy1y2 data
- *
- *	@param v_ouflow_u8: The value of overflow
- *
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
- */
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yamaha_yas537_measure_xyz_data(
-u8 *v_ouflow_u8, struct yas_vector *vector_xyz);
-/*!
- *	@brief This function used for read the
- *	YAMAHA YAS537 xy1y2 data
- *
- *	@param v_ouflow_u8: The value of overflow
- *
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
- */
-static BMI160_RETURN_FUNCTION_TYPE invalid_magnetic_field(
-u16 *v_cur_u16, u16 *v_last_u16);
-/***************************************************/
-/**\name	FUNCTIONS FOR FIFO DATA READ */
-/***************************************************/
-/*!
- *	@brief This function used for reading the
- *	fifo data of  header less mode
- *
- *
- *
- *	@note Configure the below functions for FIFO header less mode
- *	@note 1. bmi160_set_fifo_down_gyro
- *	@note 2. bmi160_set_gyro_fifo_filter_data
- *	@note 3. bmi160_set_fifo_down_accel
- *	@note 4. bmi160_set_accel_fifo_filter_dat
- *	@note 5. bmi160_set_fifo_mag_enable
- *	@note 6. bmi160_set_fifo_accel_enable
- *	@note 7. bmi160_set_fifo_gyro_enable
- *	@note For interrupt configuration
- *	@note 1. bmi160_set_intr_fifo_full
- *	@note 2. bmi160_set_intr_fifo_wm
- *	@note 3. bmi160_set_fifo_tag_intr2_enable
- *	@note 4. bmi160_set_fifo_tag_intr1_enable
- *
- *	@note The fifo reads the whole 1024 bytes
- *	and processing the data
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
- */
-BMI160_RETURN_FUNCTION_TYPE bmi160_read_fifo_headerless_mode(
-u8 v_mag_if_u8);
-/*!
- *	@brief This function used for reading the
- *	fifo data of  header less mode for using user defined length
- *
- *
- *	@param v_fifo_user_length_u16: The value of length of fifo read data
- *
- *	@note Configure the below functions for FIFO header less mode
- *	@note 1. bmi160_set_fifo_down_gyro
- *	@note 2. bmi160_set_gyro_fifo_filter_data
- *	@note 3. bmi160_set_fifo_down_accel
- *	@note 4. bmi160_set_accel_fifo_filter_dat
- *	@note 5. bmi160_set_fifo_mag_enable
- *	@note 6. bmi160_set_fifo_accel_enable
- *	@note 7. bmi160_set_fifo_gyro_enable
- *	@note For interrupt configuration
- *	@note 1. bmi160_set_intr_fifo_full
- *	@note 2. bmi160_set_intr_fifo_wm
- *	@note 3. bmi160_set_fifo_tag_intr2_enable
- *	@note 4. bmi160_set_fifo_tag_intr1_enable
- *
- *	@note The fifo reads the whole 1024 bytes
- *	and processing the data
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
- */
-BMI160_RETURN_FUNCTION_TYPE
-bmi160_read_fifo_headerless_mode_user_defined_length(
-u16 v_fifo_user_length_u16,
-struct bmi160_fifo_data_header_less_t *fifo_data, u8 v_mag_if_mag_u8);
-/*!
- *	@brief This function used for reading the
- *	fifo data of  header mode
- *
- *
- *	@note Configure the below functions for FIFO header mode
- *	@note 1. bmi160_set_fifo_down_gyro()
- *	@note 2. bmi160_set_gyro_fifo_filter_data()
- *	@note 3. bmi160_set_fifo_down_accel()
- *	@note 4. bmi160_set_accel_fifo_filter_dat()
- *	@note 5. bmi160_set_fifo_mag_enable()
- *	@note 6. bmi160_set_fifo_accel_enable()
- *	@note 7. bmi160_set_fifo_gyro_enable()
- *	@note 8. bmi160_set_fifo_header_enable()
- *	@note For interrupt configuration
- *	@note 1. bmi160_set_intr_fifo_full()
- *	@note 2. bmi160_set_intr_fifo_wm()
- *	@note 3. bmi160_set_fifo_tag_intr2_enable()
- *	@note 4. bmi160_set_fifo_tag_intr1_enable()
- *
- *	@note The fifo reads the whole 1024 bytes
- *	and processing the data
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
- */
-BMI160_RETURN_FUNCTION_TYPE bmi160_read_fifo_header_data(
-u8 v_mag_if_u8);
-/*!
- *	@brief This function used for reading the
- *	fifo data of  header mode for using user defined length
- *
- *
- *	@note Configure the below functions for FIFO header mode
- *	@note 1. bmi160_set_fifo_down_gyro()
- *	@note 2. bmi160_set_gyro_fifo_filter_data()
- *	@note 3. bmi160_set_fifo_down_accel()
- *	@note 4. bmi160_set_accel_fifo_filter_dat()
- *	@note 5. bmi160_set_fifo_mag_enable()
- *	@note 6. bmi160_set_fifo_accel_enable()
- *	@note 7. bmi160_set_fifo_gyro_enable()
- *	@note 8. bmi160_set_fifo_header_enable()
- *	@note For interrupt configuration
- *	@note 1. bmi160_set_intr_fifo_full()
- *	@note 2. bmi160_set_intr_fifo_wm()
- *	@note 3. bmi160_set_fifo_tag_intr2_enable()
- *	@note 4. bmi160_set_fifo_tag_intr1_enable()
- *
- *	@note The fifo reads the whole 1024 bytes
- *	and processing the data
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
- */
-BMI160_RETURN_FUNCTION_TYPE bmi160_read_fifo_header_data_user_defined_length(
-u16 v_fifo_user_length_u16, u8 v_mag_if_mag_u8,
-struct bmi160_fifo_data_header_t *fifo_header_data);
-/*!
- *	@brief This function used for reading
- *	bmi160_t structure
- *
- *  @return the reference and values of bmi160_t
- *
- *
-*/
-struct bmi160_t *bmi160_get_ptr(void);
-/*!
- *	@brief This function used for reading the compensated data of
- *	mag secondary interface xyz data
- *	@param v_mag_x_s16: The value of mag x data
- *	@param v_mag_y_s16: The value of mag y data
- *	@param v_mag_z_s16: The value of mag z data
- *	@param v_mag_r_s16: The value of mag r data
- *	@param v_mag_second_if_u8: The value of mag selection
- *
- *  value   |   v_mag_second_if_u8
- * ---------|----------------------
- *    0     |    BMM150
- *    1     |    AKM09911
- *    2     |    AKM09912
- *    3     |    YAS532
- *    4     |    YAS537
- *	@param mag_fifo_data: The value of compensated mag xyz data
- *
- *
- *  @return
- *
- *
-*/
-BMI160_RETURN_FUNCTION_TYPE bmi160_second_if_mag_compensate_xyz(
-struct bmi160_mag_fifo_data_t mag_fifo_data,
-u8 v_mag_second_if_u8);
-/*!
- *	@brief This function used for read the
- *	YAMAHA YAS537 xy1y2 data of fifo
- *
- *	@param a_xy1y2_u16: The value of xyy1 data
- *	@param v_over_flow_u8: The value of overflow
- *	@param v_rcoil_u8: The value of rcoil
- *	@param v_busy_u8: The value of busy flag
- *
- *
- *	@return results of bus communication function
- *	@retval 0 -> Success
- *	@retval -1 -> Error
- *
- *
- */
-BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yamaha_yas537_fifo_xyz_data(
-u16 *a_xy1y2_u16, u8 v_over_flow_u8, u8 v_rcoil_u8, u8 v_busy_u8);
-/*!
  *	@brief This function used for YAS532 sensor data
- *	@param	v_acquisition_command_u8	:	the value of CMDR
+ *
  *
  * @param v_xy1y2_u16 : the vector xyz output
  * @param v_overflow_s8 : the value of overflow
  * @param v_temp_correction_u8 : the value of temperate correction enable
+ * @param v_temp_u16 : the value of temperature
+ * @param v_busy_u8 : the value denoting the sensor is busy
  *
- *
-  *	@return results of bus communication function
+ *	@return results of bus communication function
  *	@retval 0 -> Success
  *	@retval -1 -> Error
  *
@@ -12042,5 +12150,6 @@ BMI160_RETURN_FUNCTION_TYPE bmi160_bst_yas532_fifo_xyz_data(
 u16 *v_xy1y2_u16, u8 v_temp_correction_u8,
 s8 v_overflow_s8, u16 v_temp_u16, u8 v_busy_u8);
 
+#endif
 #endif
 
